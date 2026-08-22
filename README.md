@@ -58,11 +58,14 @@ Adaptive tmux status bar (`extras/tmux-colors.conf.template`): a tmux theme driv
 source-file -q ~/.config/matugen/generated/tmux-colors.conf
 ```
 
-Terminal transparency fix (`extras/clear-tmux-window-style`): Omarchy 4 paints a solid theme background onto tmux panes on every theme change (via tmux's `window-style`), which defeats transparent terminals. If you run a transparent terminal with tmux, install this hook:
+Terminal transparency fix (`extras/omarchy-theme-set-tmux-transparent`): Omarchy 4 paints a solid theme background onto tmux panes on every theme change (via tmux's `window-style`), which defeats transparent terminals and causes a dark flash on each wallpaper switch. The fix is a PATH shim: a copy of Omarchy's `omarchy-theme-set-tmux` that skips the background painting while keeping the palette sync. Omarchy calls the command by name, so a copy in `~/.local/bin` wins:
 
 ```bash
-omarchy hook install theme-set extras/clear-tmux-window-style
+cp extras/omarchy-theme-set-tmux-transparent ~/.local/bin/omarchy-theme-set-tmux
+chmod +x ~/.local/bin/omarchy-theme-set-tmux
 ```
+
+Since this shadows a packaged script, diff it against `/usr/share/omarchy/bin/omarchy-theme-set-tmux` after major Omarchy updates.
 
 Claude Code needs nothing extra. Omarchy renders a Claude theme from `colors.toml` and hot-reloads running sessions; activate it once with `omarchy-theme-set-claude --activate`.
 
