@@ -2,6 +2,8 @@
 
 Automatic wallpaper-based theming for [Omarchy](https://omarchy.org) 4.0 (Quattro): dynamic Material You colors for your whole Hyprland desktop, regenerated on every wallpaper change.
 
+![Switching wallpapers live-recolors the terminal and neovim](assets/demo.gif)
+
 Change your wallpaper and the desktop follows, with no extra clicks: [matugen](https://github.com/InioX/matugen) extracts a Material You palette from the image and renders it into a real Omarchy theme. Omarchy then propagates that palette to everything it themes, which on 4.0 means the Quickshell bar, notifications, the lock screen, terminals, neovim, btop, Claude Code, and about fifteen other apps, all from one generated `colors.toml`. If you know pywal or wallust, this is that idea, built natively on Omarchy's own theme engine.
 
 Omarchy 4.0 shipped without dynamic colors (it's an open wish in [basecamp/omarchy#1153](https://github.com/basecamp/omarchy/discussions/1153)). This adds them without touching any packaged file.
@@ -85,7 +87,12 @@ end
 
 Claude Code needs nothing extra. Omarchy renders a Claude theme from `colors.toml` and hot-reloads running sessions; activate it once with `omarchy-theme-set-claude --activate`.
 
-The same pattern extends to anything matugen can template (neovim, starship, zsh, yazi, and so on): add a `[templates.<name>]` block to `~/.config/matugen/quattro.toml` with your template, an output path, and a post_hook that reloads the app. Every wallpaper change renders all of them from the same palette in one matugen run.
+The same pattern extends to anything matugen can template (neovim, starship, zsh, yazi, and so on): add a `[templates.<name>]` block to `~/.config/matugen/quattro.toml` with your template and an output path. Every wallpaper change renders all of them from the same palette in one matugen run.
+
+Two hard-won rules for those extra templates:
+
+- **Prefer indexed ANSI colors (`38;5;N`, `fg=4`) over hex in anything a shell prints** — prompts, `LS_COLORS`, fzf, zsh syntax highlighting. Hex bakes RGB into every terminal cell forever; indexed cells follow the terminal palette, so a theme change recolors your entire scrollback live, even inside tmux. Roles beyond the ANSI 16 can live in `color16+` via a small generated kitty include. Files built this way are static — they need no reload hook at all.
+- **Never use a post_hook that broadcasts signals at shells** (`pkill -USR2 zsh` and friends). Any process that hasn't installed a handler dies — including the zsh parked on `tmux attach` in `.zshrc`, which takes its tmux client and the whole terminal window down with it. If an app must be told to reload, have it watch its generated file instead (nvim: `vim.uv.new_fs_poll`).
 
 ## Tuning
 

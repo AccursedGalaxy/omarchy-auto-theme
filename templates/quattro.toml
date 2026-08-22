@@ -10,9 +10,13 @@ output_path = '~/.config/omarchy/themes/matugen-auto/colors.toml'
 # Optional: adaptive tmux status bar colors. Uncomment after installing the
 # extras/tmux-colors.conf.template (see README) and adding
 #   source-file -q ~/.config/matugen/generated/tmux-colors.conf
-# to your tmux.conf.
+# to your tmux.conf. No post_hook: the omarchy-theme-set-tmux shim (extras)
+# re-sources the generated file into the running server on every theme
+# change. If you skip the shim, reload with a post_hook of
+# `tmux source-file ...` — but never hook `pkill` at shells here: a signal
+# broadcast can kill processes that have no handler installed (a zsh parked
+# on `tmux attach` in .zshrc takes its whole terminal window down with it).
 #
 # [templates.tmux]
 # input_path  = '~/.config/matugen/templates/tmux-colors.conf'
 # output_path = '~/.config/matugen/generated/tmux-colors.conf'
-# post_hook   = 'tmux source-file ~/.config/matugen/generated/tmux-colors.conf 2>/dev/null || true'
