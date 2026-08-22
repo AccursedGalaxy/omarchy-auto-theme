@@ -1,0 +1,29 @@
+#!/bin/bash
+# Regenerate the matugen-auto quattro theme from the current wallpaper.
+# Triggered by omarchy-matugen.path whenever omarchy's current/ state changes.
+set -euo pipefail
+
+STATE_DIR="$HOME/.local/state/omarchy"
+LAST_FILE="$STATE_DIR/matugen-auto.last"
+THEME_DIR="$HOME/.config/omarchy/themes/matugen-auto"
+
+# Only act while the adaptive theme is active.
+theme_name=$(cat "$STATE_DIR/current/theme.name" 2>/dev/null || true)
+slug=$(echo "$theme_name" | tr '[:upper:] ' '[:lower:]-')
+[[ $slug == matugen-auto ]] || exit 0
+
+bg=$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || true)
+[[ -n $bg && -f $bg ]] || exit 0
+
+# Idempotency guard: theme refresh rewrites current/ without changing the
+# wallpaper, which re-triggers the path unit — bail unless the image changed.
+[[ $bg == "$(cat "$LAST_FILE" 2>/dev/null || true)" ]] && exit 0
+
+matugen image "$bg" --config "$HOME/.config/matugen/quattro.toml" --mode dark --prefer saturation
+
+echo "$bg" >"$LAST_FILE"
+
+# Re-render every omarchy template (shell, neovim, terminal OSC, ...) from the
+# freshly generated colors.toml. Runs with OMARCHY_THEME_SKIP_BACKGROUND=1
+# internally, so it does not loop back into this script.
+omarchy-theme-refresh

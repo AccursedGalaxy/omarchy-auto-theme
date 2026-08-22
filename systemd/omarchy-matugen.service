@@ -1,0 +1,6 @@
+[Unit]
+Description=Regenerate matugen-auto theme colors from current wallpaper
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/omarchy-matugen-sync

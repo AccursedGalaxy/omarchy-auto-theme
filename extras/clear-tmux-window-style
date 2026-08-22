@@ -1,0 +1,5 @@
+#!/bin/bash
+# omarchy-theme-set-tmux paints a solid theme bg on tmux panes (window-style),
+# which defeats terminal transparency. Clear it again after every theme set.
+tmux set -g window-style "" 2>/dev/null
+tmux set -g window-active-style "" 2>/dev/null

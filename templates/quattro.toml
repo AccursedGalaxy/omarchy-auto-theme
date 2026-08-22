@@ -1,0 +1,18 @@
+# Matugen config for the omarchy-matugen adaptive theme.
+# Installed to ~/.config/matugen/quattro.toml — invoked by omarchy-matugen-sync.
+
+[config]
+
+[templates.omarchy_quattro]
+input_path  = '~/.config/matugen/templates/omarchy-quattro-colors.toml'
+output_path = '~/.config/omarchy/themes/matugen-auto/colors.toml'
+
+# Optional: adaptive tmux status bar colors. Uncomment after installing the
+# extras/tmux-colors.conf.template (see README) and adding
+#   source-file -q ~/.config/matugen/generated/tmux-colors.conf
+# to your tmux.conf.
+#
+# [templates.tmux]
+# input_path  = '~/.config/matugen/templates/tmux-colors.conf'
+# output_path = '~/.config/matugen/generated/tmux-colors.conf'
+# post_hook   = 'tmux source-file ~/.config/matugen/generated/tmux-colors.conf 2>/dev/null || true'

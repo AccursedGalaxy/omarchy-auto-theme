@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch omarchy background state for matugen-auto regeneration
+
+[Path]
+PathModified=%h/.local/state/omarchy/current
+Unit=omarchy-matugen.service
+
+[Install]
+WantedBy=default.target
