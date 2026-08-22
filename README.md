@@ -1,8 +1,8 @@
-# omarchy-matugen
+# omarchy-auto-theme
 
-Wallpaper-adaptive theming for [Omarchy](https://omarchy.org) 4.0 (Quattro).
+Automatic wallpaper-based theming for [Omarchy](https://omarchy.org) 4.0 (Quattro): dynamic Material You colors for your whole Hyprland desktop, regenerated on every wallpaper change.
 
-Change your wallpaper and the desktop follows: [matugen](https://github.com/InioX/matugen) extracts a Material You palette from the image and renders it into a real Omarchy theme. Omarchy then propagates that palette to everything it themes, which on 4.0 means the Quickshell bar, notifications, the lock screen, terminals, neovim, btop, Claude Code, and about fifteen other apps, all from one generated `colors.toml`.
+Change your wallpaper and the desktop follows, with no extra clicks: [matugen](https://github.com/InioX/matugen) extracts a Material You palette from the image and renders it into a real Omarchy theme. Omarchy then propagates that palette to everything it themes, which on 4.0 means the Quickshell bar, notifications, the lock screen, terminals, neovim, btop, Claude Code, and about fifteen other apps, all from one generated `colors.toml`. If you know pywal or wallust, this is that idea, built natively on Omarchy's own theme engine.
 
 Omarchy 4.0 shipped without dynamic colors (it's an open wish in [basecamp/omarchy#1153](https://github.com/basecamp/omarchy/discussions/1153)). This adds them without touching any packaged file.
 
@@ -31,8 +31,8 @@ Everything is installed under your home directory, so `omarchy update` won't ove
 ## Install
 
 ```bash
-git clone https://github.com/AccursedGalaxy/omarchy-matugen.git
-cd omarchy-matugen
+git clone https://github.com/AccursedGalaxy/omarchy-auto-theme.git
+cd omarchy-auto-theme
 ./install.sh
 omarchy theme set matugen-auto
 ```
@@ -76,6 +76,12 @@ After install, the palette mapping lives in `~/.config/matugen/templates/omarchy
 - Non-interactive matugen 4.x errors out with "Multiple source colors found" unless you pass `--prefer`. The sync script uses `--prefer saturation`; swap it for `darkness`, `lightness`, or another preference in `~/.local/bin/omarchy-matugen-sync` if you want a different vibe.
 
 For light mode, change `--mode dark` to `--mode light` in the sync script and `mode = "dark"` to `mode = "light"` in the template.
+
+## How is this different from tema or pywal?
+
+[tema](https://github.com/bjarneo/tema) is a theme *generator* app: you open it, pick a wallpaper, pick dark or light, and apply. It's a nice tool, and if you want a one-shot generated theme it may be all you need. omarchy-auto-theme is a *pipeline*: after install there is nothing to open. The systemd path unit notices every wallpaper change (keybind, bg-switcher, CLI) and regenerates the theme in the background.
+
+[pywal](https://github.com/dylanaraps/pywal) and [wallust](https://codeberg.org/explosion-mental/wallust) solve wallpaper-based colors generically, but you have to wire every application yourself. This project instead feeds Omarchy's own theme engine, so all the app integrations Omarchy already ships (and maintains through updates) come for free. It also uses Material You color science via matugen rather than raw dominant-color extraction, which tends to produce palettes that are usable as UI colors rather than just pretty.
 
 ## Uninstall
 

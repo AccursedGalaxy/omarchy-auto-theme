@@ -1,5 +1,5 @@
 #!/bin/bash
-# omarchy-matugen installer — wallpaper-adaptive theming for Omarchy >= 4.0 (Quattro).
+# omarchy-auto-theme installer — wallpaper-adaptive theming for Omarchy >= 4.0 (Quattro).
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
