@@ -66,6 +66,8 @@ omarchy hook install theme-set extras/clear-tmux-window-style
 
 Claude Code needs nothing extra. Omarchy renders a Claude theme from `colors.toml` and hot-reloads running sessions; activate it once with `omarchy-theme-set-claude --activate`.
 
+The same pattern extends to anything matugen can template (neovim, starship, zsh, yazi, and so on): add a `[templates.<name>]` block to `~/.config/matugen/quattro.toml` with your template, an output path, and a post_hook that reloads the app. Every wallpaper change renders all of them from the same palette in one matugen run.
+
 ## Tuning
 
 After install, the palette mapping lives in `~/.config/matugen/templates/omarchy-quattro-colors.toml`. Two things to know before editing it:
