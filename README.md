@@ -67,6 +67,22 @@ chmod +x ~/.local/bin/omarchy-theme-set-tmux
 
 Since this shadows a packaged script, diff it against `/usr/share/omarchy/bin/omarchy-theme-set-tmux` after major Omarchy updates.
 
+One caveat: Omarchy puts its own bin directory first on the session PATH, so theme changes triggered from the shell menu still hit the packaged script. To make the shim win session-wide, re-prepend `~/.local/bin` from your `~/.config/hypr/hyprland.lua`:
+
+```lua
+do
+  local local_bin = (os.getenv("HOME") or "") .. "/.local/bin"
+  local omarchy_bin = (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/bin"
+  local kept = {}
+  for entry in (os.getenv("PATH") or "/usr/local/bin:/usr/bin"):gmatch("[^:]+") do
+    if entry ~= local_bin and entry ~= omarchy_bin then table.insert(kept, entry) end
+  end
+  table.insert(kept, 1, omarchy_bin)
+  table.insert(kept, 1, local_bin)
+  hl.env("PATH", table.concat(kept, ":"))
+end
+```
+
 Claude Code needs nothing extra. Omarchy renders a Claude theme from `colors.toml` and hot-reloads running sessions; activate it once with `omarchy-theme-set-claude --activate`.
 
 The same pattern extends to anything matugen can template (neovim, starship, zsh, yazi, and so on): add a `[templates.<name>]` block to `~/.config/matugen/quattro.toml` with your template, an output path, and a post_hook that reloads the app. Every wallpaper change renders all of them from the same palette in one matugen run.
