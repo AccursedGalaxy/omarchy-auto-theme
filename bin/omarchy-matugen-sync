@@ -3,6 +3,10 @@
 # Triggered by omarchy-matugen.path whenever omarchy's current/ state changes.
 set -euo pipefail
 
+# systemd user units don't put ~/.local/bin on PATH; it must precede the
+# omarchy bin dir so local shims (e.g. omarchy-theme-set-tmux) win here too.
+export PATH="$HOME/.local/bin:$PATH"
+
 STATE_DIR="$HOME/.local/state/omarchy"
 LAST_FILE="$STATE_DIR/matugen-auto.last"
 THEME_DIR="$HOME/.config/omarchy/themes/matugen-auto"

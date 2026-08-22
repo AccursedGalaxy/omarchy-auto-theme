@@ -74,17 +74,22 @@ sync_tmux_window_style() {
   fi
 }
 
+# Replaces the stock sync_tmux_pane_colors. The stock version writes the full
+# OSC palette (incl. OSC 11 background) into every pane tty, which (a) flashes
+# a solid background on transparent terminals until the terminal's own config
+# reload restores opacity, and (b) pins a per-pane palette in tmux so colors
+# already rendered on screen stop following the terminal's live palette.
+# The terminal itself (kitty via config include + SIGUSR1) is the single
+# source of palette truth; here we only RESET any pinned pane palette so the
+# terminal's colors apply everywhere, old output included.
 sync_tmux_pane_colors() {
-  local pane_tty theme_osc
-
-  [[ -f $COLORS_TOML ]] || return
-
-  theme_osc=$(theme_osc_sequences)
-  [[ -n $theme_osc ]] || return
+  local pane_tty
+  # OSC 104 = reset color palette, OSC 110/111/112 = reset fg/bg/cursor
+  local osc_reset='\033]104\007\033]110\007\033]111\007\033]112\007'
 
   while IFS= read -r pane_tty; do
     [[ $pane_tty == /dev/pts/* ]] || continue
-    printf '%b' "$theme_osc" >"$pane_tty" 2>/dev/null || true
+    printf '%b' "$osc_reset" >"$pane_tty" 2>/dev/null || true
   done < <(tmux list-panes -a -F "#{pane_tty}" 2>/dev/null | sort -u)
 }
 
