@@ -1,5 +1,8 @@
-# Matugen config for the omarchy-matugen adaptive theme.
-# Installed to ~/.config/matugen/quattro.toml — invoked by omarchy-matugen-sync.
+# Matugen config owned by omarchy-auto-theme.
+# Installed to ~/.config/matugen/omarchy-auto-theme.toml — invoked by
+# omarchy-matugen-sync. Add your own [templates.*] blocks below to render
+# extra apps from the same palette; the installer and uninstaller leave a
+# modified copy of this file alone.
 
 [config]
 

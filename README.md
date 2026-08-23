@@ -50,11 +50,18 @@ ln -sfn ~/Pictures/Wallpapers ~/.config/omarchy/backgrounds/matugen-auto
 omarchy theme set matugen-auto   # re-apply so Omarchy picks up the new list
 ```
 
+If `~/.config/omarchy/backgrounds/matugen-auto` already exists as a real directory (not a symlink), `ln -sfn` would create the link *inside* it instead of replacing it. Move the directory aside first:
+
+```bash
+mv ~/.config/omarchy/backgrounds/matugen-auto ~/.config/omarchy/backgrounds/matugen-auto.bak
+ln -s ~/Pictures/Wallpapers ~/.config/omarchy/backgrounds/matugen-auto
+```
+
 One quirk: Omarchy snapshots the background list when a theme is applied, so wallpapers you add later only show up in the switcher after the next `omarchy theme set matugen-auto`. Color generation itself always uses whatever wallpaper is currently set.
 
 ## Extras
 
-Adaptive tmux status bar (`extras/tmux-colors.conf.template`): a tmux theme driven by the same palette. Copy it to `~/.config/matugen/templates/tmux-colors.conf`, uncomment the `[templates.tmux]` block in `~/.config/matugen/quattro.toml`, and add this line to your tmux.conf:
+Adaptive tmux status bar (`extras/tmux-colors.conf.template`): a tmux theme driven by the same palette. Copy it to `~/.config/matugen/templates/tmux-colors.conf`, uncomment the `[templates.tmux]` block in `~/.config/matugen/omarchy-auto-theme.toml`, and add this line to your tmux.conf:
 
 ```
 source-file -q ~/.config/matugen/generated/tmux-colors.conf
@@ -87,7 +94,7 @@ end
 
 Claude Code needs nothing extra. Omarchy renders a Claude theme from `colors.toml` and hot-reloads running sessions; activate it once with `omarchy-theme-set-claude --activate`.
 
-The same pattern extends to anything matugen can template (neovim, starship, zsh, yazi, and so on): add a `[templates.<name>]` block to `~/.config/matugen/quattro.toml` with your template and an output path. Every wallpaper change renders all of them from the same palette in one matugen run.
+The same pattern extends to anything matugen can template (neovim, starship, zsh, yazi, and so on): add a `[templates.<name>]` block to `~/.config/matugen/omarchy-auto-theme.toml` with your template and an output path. Every wallpaper change renders all of them from the same palette in one matugen run. The config is yours to extend: once you modify it, the installer and uninstaller leave it alone (upgrades land the distributed version next to it as `omarchy-auto-theme.toml.new`).
 
 Two hard-won rules for those extra templates:
 
@@ -103,6 +110,24 @@ After install, the palette mapping lives in `~/.config/matugen/templates/omarchy
 
 For light mode, change `--mode dark` to `--mode light` in the sync script and `mode = "dark"` to `mode = "light"` in the template.
 
+## Troubleshooting
+
+Start with the built-in diagnosis, which checks every link in the pipeline (commands, config, template, output dir, wallpaper state, watcher unit):
+
+```bash
+~/.local/bin/omarchy-matugen-sync --diagnose
+```
+
+If something is off, the usual suspects:
+
+```bash
+systemctl --user status omarchy-matugen.path      # is the watcher running?
+journalctl --user -u omarchy-matugen.service      # what happened on the last trigger?
+~/.local/bin/omarchy-matugen-sync                 # run the sync by hand
+```
+
+The sync script deliberately exits silently when the `matugen-auto` theme isn't the active one, when no wallpaper is set, or when the wallpaper hasn't changed since the last run (it fingerprints path + size + mtime). If colors aren't updating, `--diagnose` will tell you which of those guards is the reason.
+
 ## How is this different from tema or pywal?
 
 [tema](https://github.com/bjarneo/tema) is a theme *generator* app: you open it, pick a wallpaper, pick dark or light, and apply. It's a nice tool, and if you want a one-shot generated theme it may be all you need. omarchy-auto-theme is a *pipeline*: after install there is nothing to open. The systemd path unit notices every wallpaper change (keybind, bg-switcher, CLI) and regenerates the theme in the background.
@@ -116,7 +141,7 @@ For light mode, change `--mode dark` to `--mode light` in the sync script and `m
 omarchy theme set tokyo-night   # or any theme you like
 ```
 
-The theme directory (`~/.config/omarchy/themes/matugen-auto`) is left in place so you keep your backgrounds. Delete it if you want a full cleanup.
+The uninstaller only removes files this project installed. The theme directory (`~/.config/omarchy/themes/matugen-auto`) is left in place so you keep your backgrounds, and any config or template you modified is kept too (it tells you which). Delete those yourself if you want a full cleanup.
 
 ## License
 

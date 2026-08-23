@@ -106,7 +106,7 @@ signal_tmux_panes() {
 
 # Re-source the matugen-generated status-bar colors (tmux.conf loads them at
 # server start; this picks up regenerated values on every theme change).
-# Single owner of the live tmux reload — quattro.toml has no tmux post_hook.
+# Single owner of the live tmux reload — the matugen config has no tmux post_hook.
 sync_tmux_status_colors() {
   local status_conf="$HOME/.config/matugen/generated/tmux-colors.conf"
 

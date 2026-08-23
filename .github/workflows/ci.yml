@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n (all shell files)
+        run: |
+          bash -n install.sh uninstall.sh bin/omarchy-matugen-sync \
+            extras/omarchy-theme-set-tmux-transparent tests/run-tests.sh
+      - name: shellcheck
+        run: shellcheck install.sh uninstall.sh bin/omarchy-matugen-sync tests/run-tests.sh
+      - name: systemd unit verification
+        run: |
+          # verify checks that ExecStart resolves, so stage the script where %h points
+          install -Dm755 bin/omarchy-matugen-sync "$HOME/.local/bin/omarchy-matugen-sync"
+          systemd-analyze --user verify systemd/omarchy-matugen.service systemd/omarchy-matugen.path
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install/uninstall lifecycle tests
+        run: tests/run-tests.sh
