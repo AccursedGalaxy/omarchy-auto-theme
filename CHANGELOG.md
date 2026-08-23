@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.1.0 — 2026-08-23
 
 Ease-of-use pass: the second-day tasks (own wallpapers, light mode, tuning)
 no longer require reading the README.
