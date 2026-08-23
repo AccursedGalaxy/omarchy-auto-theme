@@ -262,8 +262,15 @@ check "reinstall exits 0 with settings file" "$REPO_DIR/install.sh"
 check "install seed honors settings" grep -q -- "--mode light --prefer darkness" "$MOCK_LOG"
 
 echo "test: half-configured light mode and invalid settings are caught"
-# MODE=light but the installed template still says mode = "dark".
+# The distributed template emits mode = "{{mode}}": MODE=light alone is a
+# complete configuration and must diagnose clean.
+check "--diagnose passes with MODE=light and the dynamic template" "$SYNC" --diagnose
+# A customized template hardcoding a literal mode that disagrees with
+# settings is the half-configured state.
+sed 's/^mode = .*/mode = "dark"/' "$HOME/$TEMPLATE_REL" >"$HOME/$TEMPLATE_REL.tmp"
+mv "$HOME/$TEMPLATE_REL.tmp" "$HOME/$TEMPLATE_REL"
 check "--diagnose flags settings/template mode mismatch" bash -c "! '$SYNC' --diagnose"
+cp "$REPO_DIR/templates/omarchy-quattro-colors.toml" "$HOME/$TEMPLATE_REL"
 printf 'MODE=purple\n' >"$HOME/.config/omarchy-auto-theme/settings"
 check "invalid MODE: sync exits 2" bash -c "'$SYNC'; [[ \$? -eq 2 ]]"
 check "invalid MODE: installer refuses" bash -c "! '$REPO_DIR/install.sh' >/dev/null 2>&1"
@@ -272,6 +279,47 @@ check "invalid PREFER: sync exits 2" bash -c "'$SYNC'; [[ \$? -eq 2 ]]"
 printf 'MODE=light\nPREFER=darkness\n' >"$HOME/.config/omarchy-auto-theme/settings"
 
 check "uninstall keeps the settings file" bash -c "'$REPO_DIR/uninstall.sh' >/dev/null && test -f '$HOME/.config/omarchy-auto-theme/settings'"
+
+# --- 10. Settings file seeding ----------------------------------------------
+echo "test: installer seeds a commented settings file, never overwrites one"
+fresh_home home-settings-seed
+check "installer exits 0" "$REPO_DIR/install.sh"
+check "settings file created" test -f "$HOME/.config/omarchy-auto-theme/settings"
+check "seeded settings are all comments (defaults unchanged)" \
+  bash -c "! grep -qv '^#\|^$' '$HOME/.config/omarchy-auto-theme/settings'"
+check "matugen still uses built-in defaults" grep -q -- "--mode dark --prefer saturation" "$MOCK_LOG"
+printf 'MODE=light\n' >"$HOME/.config/omarchy-auto-theme/settings"
+check "reinstall exits 0" "$REPO_DIR/install.sh"
+check "existing settings file untouched" bash -c "[[ \$(cat '$HOME/.config/omarchy-auto-theme/settings') == 'MODE=light' ]]"
+
+# --- 11. --wallpapers flag ---------------------------------------------------
+echo "test: install --wallpapers links the user folder"
+fresh_home home-wallpapers
+mkdir -p "$HOME/Pictures/Walls"
+printf 'img' >"$HOME/Pictures/Walls/mine.png"
+check "installer exits 0" "$REPO_DIR/install.sh" --wallpapers "$HOME/Pictures/Walls"
+USER_BGS="$HOME/.config/omarchy/backgrounds/matugen-auto"
+check "background dir is a symlink to the folder" \
+  bash -c "[[ \$(readlink -f '$USER_BGS') == \$(readlink -f '$HOME/Pictures/Walls') ]]"
+check "no starter backgrounds seeded" \
+  bash -c "! find '$HOME/.config/omarchy/themes/matugen-auto/backgrounds' -type f 2>/dev/null | grep -q ."
+check "initial colors generated from the user folder" grep -q "matugen image $HOME/Pictures/Walls/" "$MOCK_LOG"
+
+echo "test: --wallpapers backs up an existing regular background dir"
+fresh_home home-wallpapers-bak
+mkdir -p "$HOME/Pictures/Walls" "$HOME/.config/omarchy/backgrounds/matugen-auto"
+printf 'img' >"$HOME/Pictures/Walls/mine.jpg"
+printf 'old' >"$HOME/.config/omarchy/backgrounds/matugen-auto/old.png"
+check "installer exits 0" "$REPO_DIR/install.sh" --wallpapers "$HOME/Pictures/Walls"
+check "old dir backed up" test -f "$HOME/.config/omarchy/backgrounds/matugen-auto.bak/old.png"
+check "symlink in place" test -L "$HOME/.config/omarchy/backgrounds/matugen-auto"
+
+echo "test: --wallpapers rejects bad input"
+fresh_home home-wallpapers-bad
+check "missing dir fails" bash -c "! '$REPO_DIR/install.sh' --wallpapers '$HOME/nope' >/dev/null 2>&1"
+mkdir -p "$HOME/empty"
+check "dir without images fails" bash -c "! '$REPO_DIR/install.sh' --wallpapers '$HOME/empty' >/dev/null 2>&1"
+check "unknown option fails" bash -c "! '$REPO_DIR/install.sh' --bogus >/dev/null 2>&1"
 
 # ---------------------------------------------------------------------------
 echo

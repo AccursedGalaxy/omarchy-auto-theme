@@ -43,10 +43,11 @@ diagnose() {
   check "omarchy state dir: $STATE_DIR/current" test -d "$STATE_DIR/current"
   check "current wallpaper resolves"            test -f "$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || echo /nonexistent)"
   check "watcher unit active (omarchy-matugen.path)" systemctl --user is-active omarchy-matugen.path
-  # Light mode needs MODE=light in settings AND mode = "light" in the palette
-  # template — catch the half-configured state.
+  # The distributed template emits mode = "{{mode}}", which always follows the
+  # settings MODE. A customized template may hardcode a literal mode instead —
+  # catch the half-configured state where it disagrees with settings.
   check "settings MODE matches template mode" \
-    grep -q "^mode = \"$MODE\"" "$HOME/.config/matugen/templates/omarchy-quattro-colors.toml"
+    grep -qE "^mode = \"(\\{\\{mode\\}\\}|$MODE)\"" "$HOME/.config/matugen/templates/omarchy-quattro-colors.toml"
   echo "active theme: $(cat "$STATE_DIR/current/theme.name" 2>/dev/null || echo '(none)')"
   echo "matugen: $(matugen --version 2>/dev/null || echo '(not found)')"
   echo "settings: mode=$MODE prefer=$PREFER ($([[ -f $SETTINGS ]] && echo "$SETTINGS" || echo built-in defaults))"

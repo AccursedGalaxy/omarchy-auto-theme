@@ -15,6 +15,27 @@ say() { printf '\033[32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33mNote:\033[0m %s\n' "$*"; }
 fail() { printf '\033[31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
+usage() {
+  cat <<EOF
+Usage: ./install.sh [--wallpapers DIR]
+
+  --wallpapers DIR  Use your own wallpaper folder for the matugen-auto theme.
+                    Links DIR as the theme's background collection instead of
+                    seeding starter images.
+EOF
+}
+
+WALLPAPERS=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --wallpapers)
+      [[ -n ${2:-} ]] || fail "--wallpapers needs a directory argument"
+      WALLPAPERS=$2; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; fail "unknown option: $1" ;;
+  esac
+done
+
 # Install src to dst, but never clobber a user-modified dst: an existing dst
 # that differs from src is kept, and the new version lands at dst.new instead.
 install_config() {
@@ -68,10 +89,29 @@ install -Dm755 "$REPO_DIR/bin/omarchy-matugen-sync" "$HOME/.local/bin/omarchy-ma
 say "Installing theme skeleton"
 mkdir -p "$THEME_DIR/backgrounds"
 
-# Seed backgrounds so the theme is usable immediately. Point Omarchy's
-# user-background dir at your own wallpaper folder to use that instead:
-#   ln -sfn ~/Pictures/Wallpapers ~/.config/omarchy/backgrounds/matugen-auto
 user_bgs="$HOME/.config/omarchy/backgrounds/matugen-auto"
+
+# --wallpapers: link the user's own folder as the theme's background
+# collection. An existing regular dir there is backed up, never merged into.
+if [[ -n $WALLPAPERS ]]; then
+  wallpapers_resolved=$(readlink -f "$WALLPAPERS" 2>/dev/null || true)
+  [[ -n $wallpapers_resolved && -d $wallpapers_resolved ]] || fail "--wallpapers: not a directory: $WALLPAPERS"
+  WALLPAPERS=$wallpapers_resolved
+  first_img=$(find "$WALLPAPERS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) -print -quit 2>/dev/null || true)
+  [[ -n $first_img ]] || fail "--wallpapers: no images (jpg/png/jpeg/webp) found in $WALLPAPERS"
+  mkdir -p "$HOME/.config/omarchy/backgrounds"
+  if [[ -d $user_bgs && ! -L $user_bgs ]]; then
+    backup="$user_bgs.bak"
+    n=0
+    while [[ -e $backup ]]; do
+      n=$((n + 1)); backup="$user_bgs.bak.$n"
+    done
+    mv "$user_bgs" "$backup"
+    warn "Existing $(basename "$user_bgs") background dir moved to $(basename "$backup")"
+  fi
+  ln -sfn "$WALLPAPERS" "$user_bgs"
+  say "Linked wallpaper folder: $WALLPAPERS"
+fi
 # -print -quit: find stops itself at the first hit — no pipe, no pipefail/
 # SIGPIPE hazard that a `| grep -q .` construction would carry.
 existing_bg=$(find "$THEME_DIR/backgrounds" "$(readlink -f "$user_bgs" 2>/dev/null || echo /nonexistent)" -type f -print -quit 2>/dev/null || true)
@@ -85,10 +125,30 @@ fi
 seed_bg=$(find "$THEME_DIR/backgrounds" "$(readlink -f "$user_bgs" 2>/dev/null || echo /nonexistent)" -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) -print -quit 2>/dev/null || true)
 [[ -n $seed_bg ]] || fail "No background image found to seed colors from. Put a wallpaper in $THEME_DIR/backgrounds/ and rerun."
 say "Generating initial colors from $(basename "$seed_bg")"
+# Seed a commented settings file so the tuning knobs are discoverable. Only
+# ever created when absent — an existing file is the user's, never touched.
+SETTINGS_FILE="$HOME/.config/omarchy-auto-theme/settings"
+if [[ ! -e $SETTINGS_FILE ]]; then
+  mkdir -p "${SETTINGS_FILE%/*}"
+  cat >"$SETTINGS_FILE" <<'EOF'
+# omarchy-auto-theme settings. Sourced as bash (trusted code) by the installer
+# and by omarchy-matugen-sync on every wallpaper change. Uncomment to override.
+# Installs never overwrite this file; uninstall keeps it.
+
+# Matugen source-color preference. One of: darkness, lightness, saturation,
+# less-saturation, value, closest-to-fallback.
+#PREFER=saturation
+
+# Color scheme: dark or light.
+#MODE=dark
+EOF
+  say "Created settings file: $SETTINGS_FILE"
+fi
+
 # Honor the same user settings the sync script reads (a trusted bash fragment).
 PREFER=saturation MODE=dark
 # shellcheck source=/dev/null
-[[ -f $HOME/.config/omarchy-auto-theme/settings ]] && source "$HOME/.config/omarchy-auto-theme/settings"
+[[ -f $SETTINGS_FILE ]] && source "$SETTINGS_FILE"
 case $MODE in dark|light) ;; *) fail "invalid MODE '$MODE' in ~/.config/omarchy-auto-theme/settings (dark|light)" ;; esac
 [[ $PREFER =~ ^[a-zA-Z0-9_-]+$ ]] || fail "invalid PREFER '$PREFER' in ~/.config/omarchy-auto-theme/settings"
 # A leftover colors.toml from an earlier install would make a broken config
@@ -116,3 +176,7 @@ systemctl --user start omarchy-matugen.service \
 
 say "Done. Activate with: omarchy theme set matugen-auto"
 say "Then change wallpapers with SUPER+CTRL+SPACE — colors follow automatically."
+if [[ -z $WALLPAPERS ]]; then
+  warn "To use your own wallpaper folder: ./install.sh --wallpapers ~/Pictures/Wallpapers"
+fi
+warn "Tuning lives in ~/.config/omarchy-auto-theme/settings; if colors ever stop following, run: omarchy-matugen-sync --diagnose"

@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+Ease-of-use pass: the second-day tasks (own wallpapers, light mode, tuning)
+no longer require reading the README.
+
+### Added
+- **`./install.sh --wallpapers <dir>`** links your own wallpaper folder as the
+  theme's background collection in one step: validates the folder contains
+  images, backs up any existing regular background directory under a
+  non-conflicting `.bak` name, skips seeding starter backgrounds, and
+  generates the initial palette from your folder.
+- **The installer seeds a commented settings file** at
+  `~/.config/omarchy-auto-theme/settings` when none exists, so `PREFER` and
+  `MODE` are discoverable without the README. An existing file is never
+  touched.
+- The installer's closing message now points at `--wallpapers`, the settings
+  file, and `omarchy-matugen-sync --diagnose`.
+
+### Changed
+- **Light mode is now one knob.** The palette template emits
+  `mode = "{{mode}}"` (a matugen template keyword that follows the `--mode`
+  flag), so `MODE=light` in the settings file is sufficient — previously the
+  template's hardcoded `mode = "dark"` had to be edited to match.
+  `--diagnose` still flags a customized template whose literal mode disagrees
+  with the settings.
+
+### Fixed
+- README linked matugen via a `githu.com` typo.
+
 ## v1.0.2 — 2026-08-23
 
 Second-pass lifecycle hardening from two follow-up reviews.

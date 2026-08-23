@@ -1,4 +1,4 @@
-mode = "dark"
+mode = "{{mode}}"
 
 accent = "{{colors.primary.default.hex}}"
 selection = "{{colors.surface_container_high.default.hex}}"

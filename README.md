@@ -5,7 +5,7 @@ Automatic wallpaper-based colors for [Omarchy](https://omarchy.org) 4.0 (Quattro
 ![Switching wallpapers recolors the terminal and Neovim](assets/demo.gif)
 
 Change your wallpaper and the rest of the desktop follows.
-[matugen](https://githu.com/InioX/matugen) creates a Material You palette from the image.
+[matugen](https://github.com/InioX/matugen) creates a Material You palette from the image.
 The project passes that palette to Omarchy's theme engine, which updates the bar, notifications, lock screen, terminals, Neovim, btop, Claude Code, and other supported apps.
 
 It works like pywal or wallust, but uses Omarchy's existing app integrations. It also leaves packaged Omarchy files untouched.
@@ -26,7 +26,7 @@ It works like pywal or wallust, but uses Omarchy's existing app integrations. It
 ```bash
 git clone https://github.com/AccursedGalaxy/omarchy-auto-theme.git
 cd omarchy-auto-theme
-./install.sh
+./install.sh --wallpapers ~/Pictures/Wallpapers   # or plain ./install.sh for starter backgrounds
 omarchy theme set matugen-auto
 ```
 
@@ -34,22 +34,13 @@ Press `SUPER + CTRL + SPACE` and choose a wallpaper. The colors will update auto
 
 ## Use your own wallpapers
 
-The installer includes a few starter backgrounds. To use your own collection, link it to the theme's background directory:
+Pass your wallpaper folder to the installer:
 
 ```bash
-ln -sfn ~/Pictures/Wallpapers ~/.config/omarchy/backgrounds/matugen-auto
-omarchy theme set matugen-auto
+./install.sh --wallpapers ~/Pictures/Wallpapers
 ```
 
-The second command refreshes Omarchy's wallpaper list.
-
-If the destination already exists as a regular directory, move it first. Otherwise, `ln` will place the symlink inside that directory instead of replacing it.
-
-```bash
-mv ~/.config/omarchy/backgrounds/matugen-auto ~/.config/omarchy/backgrounds/matugen-auto.bak
-ln -s ~/Pictures/Wallpapers ~/.config/omarchy/backgrounds/matugen-auto
-omarchy theme set matugen-auto
-```
+This links the folder as the theme's background collection. Without the flag, the installer seeds a few starter backgrounds instead. Rerunning the installer with the flag later switches to your folder; any existing background directory is backed up first.
 
 Omarchy takes a snapshot of available backgrounds when a theme is applied. If you add wallpapers later, run `omarchy theme set matugen-auto` again to show them in the switcher. Color generation always uses the current wallpaper.
 
@@ -81,24 +72,24 @@ The generated color mapping is defined in:
 ~/.config/matugen/templates/omarchy-quattro-colors.toml
 ```
 
-To change the source-color preference or use light mode, create this file:
+The installer creates a commented settings file at:
 
 ```text
 ~/.config/omarchy-auto-theme/settings
 ```
 
-For example:
+Uncomment a line to override a default:
 
 ```sh
-PREFER=darkness   # lightness, saturation, and other matugen preferences also work
+PREFER=darkness   # darkness, lightness, saturation, less-saturation, value, closest-to-fallback
 MODE=light        # dark or light
 ```
 
-Both the installer and the sync process read these settings. The file is sourced as Bash, so treat it as trusted code. `MODE` and `PREFER` are validated after loading.
+The change takes effect on the next wallpaper switch. Both the installer and the sync process read these settings. The file is sourced as Bash, so treat it as trusted code. `MODE` and `PREFER` are validated after loading.
 
-For light mode, also change `mode = "dark"` to `mode = "light"` in the template. The `--diagnose` command reports when the two values disagree.
+The installer never overwrites an existing settings file, and the uninstaller keeps it.
 
-The installer never modifies the settings file, and the uninstaller keeps it.
+If you customized the template in an earlier version, note that light mode used to require editing `mode = "dark"` in the template as well. The current template emits `mode = "{{mode}}"`, so `MODE` in the settings file is the only knob. The `--diagnose` command reports when a customized template disagrees with the settings.
 
 ### Template details
 
