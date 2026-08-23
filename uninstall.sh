@@ -10,16 +10,24 @@ MATUGEN_DIR="$HOME/.config/matugen"
 LEGACY_MARKER='# Matugen config for the omarchy-matugen adaptive theme.'
 
 # Remove dst only if it is byte-identical to the version this repo distributes;
-# a modified file is user data and stays put.
+# a modified file is user data and stays put. Same rule for the .new copy a
+# reinstall may have left beside it.
 remove_owned() {
   local dst=$1 src=$2
-  [[ -f $dst ]] || return 0
-  if cmp -s "$src" "$dst"; then
-    rm -f "$dst"
-  else
-    echo "Kept $dst (you modified it — delete manually if unwanted)"
+  if [[ -f $dst ]]; then
+    if cmp -s "$src" "$dst"; then
+      rm -f "$dst"
+    else
+      echo "Kept $dst (you modified it — delete manually if unwanted)"
+    fi
   fi
-  rm -f "$dst.new"
+  if [[ -f $dst.new ]]; then
+    if cmp -s "$src" "$dst.new"; then
+      rm -f "$dst.new"
+    else
+      echo "Kept $dst.new (not identical to the distributed version — delete manually if unwanted)"
+    fi
+  fi
 }
 
 systemctl --user disable --now omarchy-matugen.path 2>/dev/null

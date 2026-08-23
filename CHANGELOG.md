@@ -2,9 +2,23 @@
 
 ## v1.0.2 — 2026-08-23
 
-Second-pass lifecycle hardening from the follow-up review.
+Second-pass lifecycle hardening from two follow-up reviews.
 
 ### Fixed
+- **A failed `omarchy-theme-refresh` was recorded as success**: the sync
+  script committed the wallpaper fingerprint before running the refresh, so a
+  refresh failure was never retried until the wallpaper changed again. The
+  fingerprint is now written (atomically) only after the whole pipeline
+  succeeds.
+- **Uninstall deleted `.new` files unconditionally**: `remove_owned` now
+  applies the same byte-identical ownership rule to the `.new` copy a
+  reinstall leaves beside a modified config, keeping one the user edited or
+  repurposed.
+- **Wallpaper fingerprint missed same-size edits within one second**: mtime
+  is now compared at nanosecond resolution.
+- The installer's background-existence probe used `find | grep -q` under
+  `pipefail`, which a SIGPIPE could turn into a wrong answer; both lookups now
+  use `find -print -quit`.
 - **Legacy migration could overwrite an existing `quattro.toml.bak`**: the
   backup now takes a non-conflicting name (`quattro.toml.bak.1`, `.2`, ...)
   when one already exists.
@@ -25,13 +39,23 @@ Second-pass lifecycle hardening from the follow-up review.
 - The installer's one-shot service start is documented as a launch check only
   (unit, PATH, script location); `omarchy-matugen-sync --diagnose` covers the
   full pipeline.
+- `MODE` and `PREFER` from the settings file are validated after loading
+  (`dark|light`, identifier-shaped preference); the file is documented as a
+  trusted bash fragment. `--diagnose` additionally flags a half-configured
+  light mode where the settings `MODE` and the palette template's `mode`
+  line disagree.
+- The sync script is installed with `install -Dm755`; CI enumerates every
+  bash file dynamically for `bash -n` + ShellCheck (a new script can't be
+  silently skipped), prints the ShellCheck version, and pins
+  `actions/checkout` by commit.
 
 ### Added
 - Tests for the new behavior and previously unexercised failure paths:
   `.bak` collision, foreign `quattro.toml.new` preservation, stale
   `colors.toml` rejection, matugen exiting 0 without output, `systemctl`
-  failures during install and uninstall, and settings-file overrides
-  (61 assertions, up from 45).
+  failures during install and uninstall, settings-file overrides and
+  validation, refresh-failure retry, same-second wallpaper replacement, and
+  modified-`.new` preservation (71 assertions, up from 45).
 - CI now ShellChecks the tmux shim too.
 
 ## v1.0.1 — 2026-08-23

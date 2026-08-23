@@ -16,7 +16,8 @@ THEME_DIR="$HOME/.config/omarchy/themes/matugen-auto"
 CONFIG="$HOME/.config/matugen/omarchy-auto-theme.toml"
 
 # User tuning lives in the settings file, not in this script — installs and
-# upgrades overwrite this file unconditionally. Recognized variables:
+# upgrades overwrite this file unconditionally. The file is a trusted bash
+# fragment sourced as-is; recognized variables:
 #   PREFER  matugen source-color preference (default: saturation)
 #   MODE    dark or light (default: dark)
 SETTINGS="$HOME/.config/omarchy-auto-theme/settings"
@@ -24,6 +25,8 @@ PREFER=saturation
 MODE=dark
 # shellcheck source=/dev/null
 [[ -f $SETTINGS ]] && source "$SETTINGS"
+case $MODE in dark|light) ;; *) echo "omarchy-matugen-sync: invalid MODE '$MODE' in $SETTINGS (dark|light)" >&2; exit 2 ;; esac
+[[ $PREFER =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "omarchy-matugen-sync: invalid PREFER '$PREFER' in $SETTINGS" >&2; exit 2; }
 
 diagnose() {
   local ok=0
@@ -40,6 +43,10 @@ diagnose() {
   check "omarchy state dir: $STATE_DIR/current" test -d "$STATE_DIR/current"
   check "current wallpaper resolves"            test -f "$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || echo /nonexistent)"
   check "watcher unit active (omarchy-matugen.path)" systemctl --user is-active omarchy-matugen.path
+  # Light mode needs MODE=light in settings AND mode = "light" in the palette
+  # template — catch the half-configured state.
+  check "settings MODE matches template mode" \
+    grep -q "^mode = \"$MODE\"" "$HOME/.config/matugen/templates/omarchy-quattro-colors.toml"
   echo "active theme: $(cat "$STATE_DIR/current/theme.name" 2>/dev/null || echo '(none)')"
   echo "matugen: $(matugen --version 2>/dev/null || echo '(not found)')"
   echo "settings: mode=$MODE prefer=$PREFER ($([[ -f $SETTINGS ]] && echo "$SETTINGS" || echo built-in defaults))"
@@ -57,17 +64,22 @@ bg=$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || true)
 
 # Idempotency guard: theme refresh rewrites current/ without changing the
 # wallpaper, which re-triggers the path unit — bail unless the image changed.
-# Fingerprint is path + size + mtime, so an image edited in place still counts
-# as a change.
-fingerprint="$bg $(stat -c '%s %Y' "$bg" 2>/dev/null || true)"
+# Fingerprint is path + size + nanosecond mtime, so an image edited or
+# replaced in place still counts as a change even within the same second.
+fingerprint="$bg $(stat -c '%s %.Y' "$bg" 2>/dev/null || true)"
 [[ $fingerprint == "$(cat "$LAST_FILE" 2>/dev/null || true)" ]] && exit 0
 
 [[ -s $CONFIG ]] || { echo "omarchy-matugen-sync: missing $CONFIG — rerun install.sh" >&2; exit 1; }
 matugen image "$bg" --config "$CONFIG" --mode "$MODE" --prefer "$PREFER"
 
-echo "$fingerprint" >"$LAST_FILE"
-
 # Re-render every omarchy template (shell, neovim, terminal OSC, ...) from the
 # freshly generated colors.toml. Runs with OMARCHY_THEME_SKIP_BACKGROUND=1
 # internally, so it does not loop back into this script.
 omarchy-theme-refresh
+
+# Commit the fingerprint only after the whole pipeline succeeded (set -e gets
+# us here only on success): a failed matugen or refresh must retry on the next
+# trigger, not be recorded as done. Atomic write so a crash mid-write can at
+# worst cost one redundant regeneration.
+printf '%s\n' "$fingerprint" >"$LAST_FILE.tmp.$$"
+mv -f "$LAST_FILE.tmp.$$" "$LAST_FILE"

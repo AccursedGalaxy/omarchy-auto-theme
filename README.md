@@ -115,11 +115,11 @@ PREFER=darkness   # or lightness, saturation, ...
 MODE=light        # or dark
 ```
 
-Both the installer's initial generation and every later sync read it. For light mode, also change `mode = "dark"` to `mode = "light"` in the template. The settings file is yours: installs never touch it and uninstall keeps it.
+Both the installer's initial generation and every later sync read it. The file is sourced as a bash fragment, so treat it as trusted code; `MODE` and `PREFER` are validated after loading. For light mode, also change `mode = "dark"` to `mode = "light"` in the template — `--diagnose` flags a half-configured state where the two disagree. The settings file is yours: installs never touch it and uninstall keeps it.
 
 ## Troubleshooting
 
-Start with the built-in diagnosis, which checks every link in the pipeline (commands, config, template, output dir, wallpaper state, watcher unit):
+Start with the built-in diagnosis, which checks the pipeline's prerequisites (commands, config, template, output dir, wallpaper state, watcher unit, settings/template mode consistency) — it proves the pieces are in place, not that a render succeeds; for that, change wallpaper and check the journal:
 
 ```bash
 ~/.local/bin/omarchy-matugen-sync --diagnose
@@ -133,7 +133,7 @@ journalctl --user -u omarchy-matugen.service      # what happened on the last tr
 ~/.local/bin/omarchy-matugen-sync                 # run the sync by hand
 ```
 
-The sync script deliberately exits silently when the `matugen-auto` theme isn't the active one, when no wallpaper is set, or when the wallpaper hasn't changed since the last run (it fingerprints path + size + mtime). If colors aren't updating, `--diagnose` will tell you which of those guards is the reason.
+The sync script deliberately exits silently when the `matugen-auto` theme isn't the active one, when no wallpaper is set, or when the wallpaper hasn't changed since the last run (it fingerprints path + size + nanosecond mtime). If colors aren't updating, `--diagnose` will tell you which of those guards is the reason.
 
 ## How is this different from tema or pywal?
 

@@ -8,15 +8,14 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: bash -n (all shell files)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: bash -n + shellcheck (every bash file in the repo)
         run: |
-          bash -n install.sh uninstall.sh bin/omarchy-matugen-sync \
-            extras/omarchy-theme-set-tmux-transparent tests/run-tests.sh
-      - name: shellcheck
-        run: |
-          shellcheck install.sh uninstall.sh bin/omarchy-matugen-sync \
-            extras/omarchy-theme-set-tmux-transparent tests/run-tests.sh
+          shellcheck --version
+          mapfile -t scripts < <(git grep -l '^#!/bin/bash' -- .)
+          printf 'linting: %s\n' "${scripts[@]}"
+          bash -n "${scripts[@]}"
+          shellcheck "${scripts[@]}"
       - name: systemd unit verification
         run: |
           # verify checks that ExecStart resolves, so stage the script where %h points
@@ -26,6 +25,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: install/uninstall lifecycle tests
         run: tests/run-tests.sh

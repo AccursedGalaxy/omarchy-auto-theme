@@ -63,9 +63,7 @@ fi
 # overwrite them and uninstall removes them. User tuning belongs in the
 # settings file the script sources, which we never touch.
 say "Installing sync script"
-mkdir -p "$HOME/.local/bin"
-cp "$REPO_DIR/bin/omarchy-matugen-sync" "$HOME/.local/bin/"
-chmod +x "$HOME/.local/bin/omarchy-matugen-sync"
+install -Dm755 "$REPO_DIR/bin/omarchy-matugen-sync" "$HOME/.local/bin/omarchy-matugen-sync"
 
 say "Installing theme skeleton"
 mkdir -p "$THEME_DIR/backgrounds"
@@ -74,20 +72,25 @@ mkdir -p "$THEME_DIR/backgrounds"
 # user-background dir at your own wallpaper folder to use that instead:
 #   ln -sfn ~/Pictures/Wallpapers ~/.config/omarchy/backgrounds/matugen-auto
 user_bgs="$HOME/.config/omarchy/backgrounds/matugen-auto"
-if ! find "$THEME_DIR/backgrounds" "$(readlink -f "$user_bgs" 2>/dev/null || echo /nonexistent)" -type f 2>/dev/null | grep -q .; then
+# -print -quit: find stops itself at the first hit — no pipe, no pipefail/
+# SIGPIPE hazard that a `| grep -q .` construction would carry.
+existing_bg=$(find "$THEME_DIR/backgrounds" "$(readlink -f "$user_bgs" 2>/dev/null || echo /nonexistent)" -type f -print -quit 2>/dev/null || true)
+if [[ -z $existing_bg ]]; then
   say "Seeding starter backgrounds from the stock tokyo-night theme"
   cp "$OMARCHY_SHARE"/themes/tokyo-night/backgrounds/* "$THEME_DIR/backgrounds/" 2>/dev/null || true
 fi
 
 # Generate an initial colors.toml so `omarchy theme set` has something to load,
 # and prove the config actually renders our template before enabling anything.
-seed_bg=$(find "$THEME_DIR/backgrounds" "$(readlink -f "$user_bgs" 2>/dev/null || echo /nonexistent)" -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) 2>/dev/null | head -1 || true)
+seed_bg=$(find "$THEME_DIR/backgrounds" "$(readlink -f "$user_bgs" 2>/dev/null || echo /nonexistent)" -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) -print -quit 2>/dev/null || true)
 [[ -n $seed_bg ]] || fail "No background image found to seed colors from. Put a wallpaper in $THEME_DIR/backgrounds/ and rerun."
 say "Generating initial colors from $(basename "$seed_bg")"
-# Honor the same user settings the sync script reads.
+# Honor the same user settings the sync script reads (a trusted bash fragment).
 PREFER=saturation MODE=dark
 # shellcheck source=/dev/null
 [[ -f $HOME/.config/omarchy-auto-theme/settings ]] && source "$HOME/.config/omarchy-auto-theme/settings"
+case $MODE in dark|light) ;; *) fail "invalid MODE '$MODE' in ~/.config/omarchy-auto-theme/settings (dark|light)" ;; esac
+[[ $PREFER =~ ^[a-zA-Z0-9_-]+$ ]] || fail "invalid PREFER '$PREFER' in ~/.config/omarchy-auto-theme/settings"
 # A leftover colors.toml from an earlier install would make a broken config
 # look like success — require the output to be new or freshly rewritten.
 colors_before=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missing)

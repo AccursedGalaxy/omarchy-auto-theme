@@ -35,6 +35,8 @@ EOF
 cat >"$MOCKS/omarchy-theme-refresh" <<'EOF'
 #!/bin/bash
 echo "omarchy-theme-refresh" >>"$MOCK_LOG"
+[[ ${MOCK_REFRESH_FAIL:-} == 1 ]] && exit 1
+exit 0
 EOF
 cat >"$MOCKS/systemctl" <<'EOF'
 #!/bin/bash
@@ -59,7 +61,7 @@ fresh_home() { # name -> sets HOME and MOCK_LOG
   ln -sf "$MOCKS"/* "$HOME/.local/bin/"
   export MOCK_LOG="$HOME/mock.log"
   : >"$MOCK_LOG"
-  unset MOCK_MATUGEN_FAIL MOCK_MATUGEN_NOOP MOCK_SYSTEMCTL_FAIL
+  unset MOCK_MATUGEN_FAIL MOCK_MATUGEN_NOOP MOCK_SYSTEMCTL_FAIL MOCK_REFRESH_FAIL
 }
 
 CONFIG_REL=".config/matugen/omarchy-auto-theme.toml"
@@ -176,9 +178,14 @@ printf '# my personal matugen setup\n[config]\n' >"$HOME/.config/matugen/quattro
 "$REPO_DIR/install.sh" >/dev/null 2>&1
 echo "# user tweak" >>"$HOME/$CONFIG_REL"
 echo "# user tweak" >>"$HOME/$TEMPLATE_REL"
+# Reinstall over the modified files: pristine .new copies land beside them.
+"$REPO_DIR/install.sh" >/dev/null 2>&1
+echo "# repurposed" >>"$HOME/$TEMPLATE_REL.new"
 check "uninstaller exits 0" "$REPO_DIR/uninstall.sh"
 check "modified project config kept" test -f "$HOME/$CONFIG_REL"
 check "modified template kept" test -f "$HOME/$TEMPLATE_REL"
+check "pristine .new removed" test ! -f "$HOME/$CONFIG_REL.new"
+check "modified .new kept" grep -q "repurposed" "$HOME/$TEMPLATE_REL.new"
 check "foreign quattro.toml kept" grep -q "my personal matugen setup" "$HOME/.config/matugen/quattro.toml"
 
 # --- 8. HOME containing spaces ---------------------------------------------
@@ -219,6 +226,28 @@ touch -d '2001-01-01' "$STATE/wall.png"   # same path, new mtime = edited in pla
 check "in-place edit: exits 0" "$SYNC"
 check "in-place edit: regenerates (mtime fingerprint)" grep -q "matugen image" "$MOCK_LOG"
 
+# Same path, same size, same second — only the nanoseconds differ.
+touch -d '2001-01-02 00:00:00.100000000' "$STATE/wall.png"
+"$SYNC" >/dev/null 2>&1
+touch -d '2001-01-02 00:00:00.200000000' "$STATE/wall.png"
+: >"$MOCK_LOG"
+check "same-second replacement: regenerates (ns fingerprint)" bash -c "'$SYNC' && grep -q 'matugen image' '$MOCK_LOG'"
+
+echo "test: failed refresh is retried, not recorded as done"
+touch -d '2003-03-03' "$STATE/wall.png"
+export MOCK_REFRESH_FAIL=1
+: >"$MOCK_LOG"
+if "$SYNC" >/dev/null 2>&1; then
+  FAILED=$((FAILED + 1)); note "FAIL sync should exit nonzero when refresh fails"
+else
+  PASS=$((PASS + 1))
+fi
+unset MOCK_REFRESH_FAIL
+: >"$MOCK_LOG"
+check "next run retries the full pipeline" bash -c "'$SYNC' && grep -q 'matugen image' '$MOCK_LOG' && grep -q omarchy-theme-refresh '$MOCK_LOG'"
+: >"$MOCK_LOG"
+check "successful retry commits the fingerprint" bash -c "'$SYNC' && ! grep -q matugen '$MOCK_LOG'"
+
 check "--diagnose exits 0 on healthy install" "$SYNC" --diagnose
 
 echo "test: settings file overrides mode and prefer"
@@ -231,6 +260,17 @@ check "sync honors settings" grep -q -- "--mode light --prefer darkness" "$MOCK_
 : >"$MOCK_LOG"
 check "reinstall exits 0 with settings file" "$REPO_DIR/install.sh"
 check "install seed honors settings" grep -q -- "--mode light --prefer darkness" "$MOCK_LOG"
+
+echo "test: half-configured light mode and invalid settings are caught"
+# MODE=light but the installed template still says mode = "dark".
+check "--diagnose flags settings/template mode mismatch" bash -c "! '$SYNC' --diagnose"
+printf 'MODE=purple\n' >"$HOME/.config/omarchy-auto-theme/settings"
+check "invalid MODE: sync exits 2" bash -c "'$SYNC'; [[ \$? -eq 2 ]]"
+check "invalid MODE: installer refuses" bash -c "! '$REPO_DIR/install.sh' >/dev/null 2>&1"
+printf 'PREFER="darkness; rm -rf /"\n' >"$HOME/.config/omarchy-auto-theme/settings"
+check "invalid PREFER: sync exits 2" bash -c "'$SYNC'; [[ \$? -eq 2 ]]"
+printf 'MODE=light\nPREFER=darkness\n' >"$HOME/.config/omarchy-auto-theme/settings"
+
 check "uninstall keeps the settings file" bash -c "'$REPO_DIR/uninstall.sh' >/dev/null && test -f '$HOME/.config/omarchy-auto-theme/settings'"
 
 # ---------------------------------------------------------------------------
