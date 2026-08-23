@@ -1,36 +1,27 @@
 # omarchy-auto-theme
 
-Automatic wallpaper-based theming for [Omarchy](https://omarchy.org) 4.0 (Quattro): dynamic Material You colors for your whole Hyprland desktop, regenerated on every wallpaper change.
+Automatic wallpaper-based colors for [Omarchy](https://omarchy.org) 4.0 (Quattro).
 
-![Switching wallpapers live-recolors the terminal and neovim](assets/demo.gif)
+![Switching wallpapers recolors the terminal and Neovim](assets/demo.gif)
 
-Change your wallpaper and the desktop follows, with no extra clicks: [matugen](https://github.com/InioX/matugen) extracts a Material You palette from the image and renders it into a real Omarchy theme. Omarchy then propagates that palette to everything it themes, which on 4.0 means the Quickshell bar, notifications, the lock screen, terminals, neovim, btop, Claude Code, and about fifteen other apps, all from one generated `colors.toml`. If you know pywal or wallust, this is that idea, built natively on Omarchy's own theme engine.
+Change your wallpaper and the rest of the desktop follows.
+[matugen](https://githu.com/InioX/matugen) creates a Material You palette from the image.
+The project passes that palette to Omarchy's theme engine, which updates the bar, notifications, lock screen, terminals, Neovim, btop, Claude Code, and other supported apps.
 
-Omarchy 4.0 shipped without dynamic colors (it's an open wish in [basecamp/omarchy#1153](https://github.com/basecamp/omarchy/discussions/1153)). This adds them without touching any packaged file.
+It works like pywal or wallust, but uses Omarchy's existing app integrations. It also leaves packaged Omarchy files untouched.
 
-## How it works
+## Quick start
 
-```
-wallpaper change (keybind, bg-switcher, CLI)
-        │  systemd path unit watches ~/.local/state/omarchy/current
-        ▼
-omarchy-matugen-sync
-        │  matugen: image → Material You palette → colors.toml
-        ▼
-~/.config/omarchy/themes/matugen-auto/colors.toml
-        │  omarchy theme refresh
-        ▼
-every app Omarchy themes, live-reloaded
-```
+### Requirements
 
-Everything is installed under your home directory, so `omarchy update` won't overwrite it.
+- Omarchy 4.0 or newer (Quattro)
+- matugen, installed with:
 
-## Requirements
+  ```bash
+  omarchy pkg aur add matugen-bin
+  ```
 
-- Omarchy 4.0+ (Quattro)
-- matugen: `omarchy pkg aur add matugen-bin`
-
-## Install
+### Install
 
 ```bash
 git clone https://github.com/AccursedGalaxy/omarchy-auto-theme.git
@@ -39,44 +30,118 @@ cd omarchy-auto-theme
 omarchy theme set matugen-auto
 ```
 
-Then hit `SUPER + CTRL + SPACE` and pick a wallpaper.
+Press `SUPER + CTRL + SPACE` and choose a wallpaper. The colors will update automatically.
 
-## Using your own wallpapers
+## Use your own wallpapers
 
-The installer seeds a few starter backgrounds. To use your own collection, point Omarchy's user-background directory at it:
+The installer includes a few starter backgrounds. To use your own collection, link it to the theme's background directory:
 
 ```bash
 ln -sfn ~/Pictures/Wallpapers ~/.config/omarchy/backgrounds/matugen-auto
-omarchy theme set matugen-auto   # re-apply so Omarchy picks up the new list
+omarchy theme set matugen-auto
 ```
 
-If `~/.config/omarchy/backgrounds/matugen-auto` already exists as a real directory (not a symlink), `ln -sfn` would create the link *inside* it instead of replacing it. Move the directory aside first:
+The second command refreshes Omarchy's wallpaper list.
+
+If the destination already exists as a regular directory, move it first. Otherwise, `ln` will place the symlink inside that directory instead of replacing it.
 
 ```bash
 mv ~/.config/omarchy/backgrounds/matugen-auto ~/.config/omarchy/backgrounds/matugen-auto.bak
 ln -s ~/Pictures/Wallpapers ~/.config/omarchy/backgrounds/matugen-auto
+omarchy theme set matugen-auto
 ```
 
-One quirk: Omarchy snapshots the background list when a theme is applied, so wallpapers you add later only show up in the switcher after the next `omarchy theme set matugen-auto`. Color generation itself always uses whatever wallpaper is currently set.
+Omarchy takes a snapshot of available backgrounds when a theme is applied. If you add wallpapers later, run `omarchy theme set matugen-auto` again to show them in the switcher. Color generation always uses the current wallpaper.
 
-## Extras
+## How it works
 
-Adaptive tmux status bar (`extras/tmux-colors.conf.template`): a tmux theme driven by the same palette. Copy it to `~/.config/matugen/templates/tmux-colors.conf`, uncomment the `[templates.tmux]` block in `~/.config/matugen/omarchy-auto-theme.toml`, and add this line to your tmux.conf:
-
+```text
+wallpaper changes (keybind, background switcher, or CLI)
+        │
+        │  systemd watches ~/.local/state/omarchy/current
+        ▼
+omarchy-matugen-sync
+        │
+        │  matugen turns the image into colors.toml
+        ▼
+~/.config/omarchy/themes/matugen-auto/colors.toml
+        │
+        │  Omarchy refreshes the active theme
+        ▼
+supported apps reload with the new palette
 ```
-source-file -q ~/.config/matugen/generated/tmux-colors.conf
+
+Everything is installed under your home directory, so `omarchy update` will not overwrite it.
+
+## Configure palette generation
+
+The generated color mapping is defined in:
+
+```text
+~/.config/matugen/templates/omarchy-quattro-colors.toml
 ```
 
-Terminal transparency fix (`extras/omarchy-theme-set-tmux-transparent`): Omarchy 4 paints a solid theme background onto tmux panes on every theme change (via tmux's `window-style`), which defeats transparent terminals and causes a dark flash on each wallpaper switch. The fix is a PATH shim: a copy of Omarchy's `omarchy-theme-set-tmux` that skips the background painting while keeping the palette sync. Omarchy calls the command by name, so a copy in `~/.local/bin` wins:
+To change the source-color preference or use light mode, create this file:
+
+```text
+~/.config/omarchy-auto-theme/settings
+```
+
+For example:
+
+```sh
+PREFER=darkness   # lightness, saturation, and other matugen preferences also work
+MODE=light        # dark or light
+```
+
+Both the installer and the sync process read these settings. The file is sourced as Bash, so treat it as trusted code. `MODE` and `PREFER` are validated after loading.
+
+For light mode, also change `mode = "dark"` to `mode = "light"` in the template. The `--diagnose` command reports when the two values disagree.
+
+The installer never modifies the settings file, and the uninstaller keeps it.
+
+### Template details
+
+- In matugen 4.x, `set_lightness` sets an absolute HSL lightness percentage while preserving hue and saturation. Negative values clamp to black. The template uses this behavior for its background ramp and bright colors.
+- Non-interactive matugen 4.x can fail with `Multiple source colors found` unless `--prefer` is set. This project defaults to `--prefer saturation`.
+
+## Optional integrations
+
+### Adaptive tmux status bar
+
+The file `extras/tmux-colors.conf.template` provides a tmux theme based on the same palette.
+
+1. Copy the template:
+
+   ```bash
+   cp extras/tmux-colors.conf.template ~/.config/matugen/templates/tmux-colors.conf
+   ```
+
+2. Uncomment the `[templates.tmux]` block in `~/.config/matugen/omarchy-auto-theme.toml`.
+3. Add this line to your tmux configuration:
+
+   ```tmux
+   source-file -q ~/.config/matugen/generated/tmux-colors.conf
+   ```
+
+### Transparent tmux panes
+
+Omarchy 4 sets a solid background on tmux panes after each theme change. This overrides terminal transparency and can cause a dark flash.
+
+The included shim keeps palette syncing but skips the background override:
 
 ```bash
 cp extras/omarchy-theme-set-tmux-transparent ~/.local/bin/omarchy-theme-set-tmux
 chmod +x ~/.local/bin/omarchy-theme-set-tmux
 ```
 
-Since this shadows a packaged script, diff it against `/usr/share/omarchy/bin/omarchy-theme-set-tmux` after major Omarchy updates.
+This file shadows an Omarchy script. After major Omarchy updates, compare it with the packaged version:
 
-One caveat: Omarchy puts its own bin directory first on the session PATH, so theme changes triggered from the shell menu still hit the packaged script. To make the shim win session-wide, re-prepend `~/.local/bin` from your `~/.config/hypr/hyprland.lua`:
+```bash
+diff ~/.local/bin/omarchy-theme-set-tmux /usr/share/omarchy/bin/omarchy-theme-set-tmux
+```
+
+Omarchy places its own bin directory first in the session `PATH`. As a result, theme changes started from the shell menu may still use the packaged script. To make the shim take priority across the session, add this to `~/.config/hypr/hyprland.lua`:
 
 ```lua
 do
@@ -92,63 +157,75 @@ do
 end
 ```
 
-Claude Code needs nothing extra. Omarchy renders a Claude theme from `colors.toml` and hot-reloads running sessions; activate it once with `omarchy-theme-set-claude --activate`.
+### Claude Code
 
-The same pattern extends to anything matugen can template (neovim, starship, zsh, yazi, and so on): add a `[templates.<name>]` block to `~/.config/matugen/omarchy-auto-theme.toml` with your template and an output path. Every wallpaper change renders all of them from the same palette in one matugen run. The config is yours to extend: once you modify it, the installer and uninstaller leave it alone (upgrades land the distributed version next to it as `omarchy-auto-theme.toml.new`).
+Claude Code needs no extra template. Omarchy generates its theme from `colors.toml` and reloads running sessions. Activate the integration once:
 
-Two hard-won rules for those extra templates:
-
-- **Prefer indexed ANSI colors (`38;5;N`, `fg=4`) over hex in anything a shell prints** — prompts, `LS_COLORS`, fzf, zsh syntax highlighting. Hex bakes RGB into every terminal cell forever; indexed cells follow the terminal palette, so a theme change recolors your entire scrollback live, even inside tmux. Roles beyond the ANSI 16 can live in `color16+` via a small generated kitty include. Files built this way are static — they need no reload hook at all.
-- **Never use a post_hook that broadcasts signals at shells** (`pkill -USR2 zsh` and friends). Any process that hasn't installed a handler dies — including the zsh parked on `tmux attach` in `.zshrc`, which takes its tmux client and the whole terminal window down with it. If an app must be told to reload, have it watch its generated file instead (nvim: `vim.uv.new_fs_poll`).
-
-## Tuning
-
-After install, the palette mapping lives in `~/.config/matugen/templates/omarchy-quattro-colors.toml`. Two things to know before editing it:
-
-- matugen 4.x's `set_lightness` filter is absolute: it sets the HSL lightness percentage while keeping hue and saturation, and negative values clamp to black. The template relies on this for the background ramp and the bright colors.
-- Non-interactive matugen 4.x errors out with "Multiple source colors found" unless you pass `--prefer`. The sync script uses `--prefer saturation` by default.
-
-To change the preference or switch to light mode, don't edit the sync script (installs overwrite it) — create `~/.config/omarchy-auto-theme/settings`:
-
-```sh
-PREFER=darkness   # or lightness, saturation, ...
-MODE=light        # or dark
+```bash
+omarchy-theme-set-claude --activate
 ```
 
-Both the installer's initial generation and every later sync read it. The file is sourced as a bash fragment, so treat it as trusted code; `MODE` and `PREFER` are validated after loading. For light mode, also change `mode = "dark"` to `mode = "light"` in the template — `--diagnose` flags a half-configured state where the two disagree. The settings file is yours: installs never touch it and uninstall keeps it.
+### Other matugen templates
+
+You can extend `~/.config/matugen/omarchy-auto-theme.toml` with templates for tools such as Starship, Zsh, Yazi, or Neovim. Add a `[templates.<name>]` block with a template path and output path. Every wallpaper change renders all configured templates in one matugen run.
+
+Once you customize this config, installation and removal will leave it untouched. Future distributed versions are written to `omarchy-auto-theme.toml.new` instead.
+
+Keep these rules in mind:
+
+- **Prefer indexed ANSI colors for shell output.** Values such as `38;5;N` and `fg=4` follow the terminal palette. Unlike fixed hex colors, they can recolor existing scrollback after a theme change, including inside tmux.
+- **Do not broadcast reload signals to shells.** Commands such as `pkill -USR2 zsh` can kill processes without a signal handler, including shells waiting on `tmux attach`. When possible, make an app watch its generated file instead.
 
 ## Troubleshooting
 
-Start with the built-in diagnosis, which checks the pipeline's prerequisites (commands, config, template, output dir, wallpaper state, watcher unit, settings/template mode consistency) — it proves the pieces are in place, not that a render succeeds; for that, change wallpaper and check the journal:
+Start with the built-in diagnostic:
 
 ```bash
 ~/.local/bin/omarchy-matugen-sync --diagnose
 ```
 
-If something is off, the usual suspects:
+It checks commands, config files, the template, output directory, wallpaper state, watcher unit, and light/dark mode consistency. It confirms that the pipeline is configured, but it does not perform a render.
+
+To test a render, change the wallpaper and inspect the service:
 
 ```bash
-systemctl --user status omarchy-matugen.path      # is the watcher running?
-journalctl --user -u omarchy-matugen.service      # what happened on the last trigger?
-~/.local/bin/omarchy-matugen-sync                 # run the sync by hand
+systemctl --user status omarchy-matugen.path
+journalctl --user -u omarchy-matugen.service
+~/.local/bin/omarchy-matugen-sync
 ```
 
-The sync script deliberately exits silently when the `matugen-auto` theme isn't the active one, when no wallpaper is set, or when the wallpaper hasn't changed since the last run (it fingerprints path + size + nanosecond mtime). If colors aren't updating, `--diagnose` will tell you which of those guards is the reason.
+The sync command exits quietly when:
 
-## How is this different from tema or pywal?
+- `matugen-auto` is not the active theme;
+- no wallpaper is set; or
+- the wallpaper has not changed since the previous run.
 
-[tema](https://github.com/bjarneo/tema) is a theme *generator* app: you open it, pick a wallpaper, pick dark or light, and apply. It's a nice tool, and if you want a one-shot generated theme it may be all you need. omarchy-auto-theme is a *pipeline*: after install there is nothing to open. The systemd path unit notices every wallpaper change (keybind, bg-switcher, CLI) and regenerates the theme in the background.
+Wallpaper changes are detected from the file path, size, and nanosecond modification time. If colors do not update, `--diagnose` reports which guard stopped the sync.
 
-[pywal](https://github.com/dylanaraps/pywal) and [wallust](https://codeberg.org/explosion-mental/wallust) solve wallpaper-based colors generically, but you have to wire every application yourself. This project instead feeds Omarchy's own theme engine, so all the app integrations Omarchy already ships (and maintains through updates) come for free. It also uses Material You color science via matugen rather than raw dominant-color extraction, which tends to produce palettes that are usable as UI colors rather than just pretty.
+## How does it compare?
+
+### tema
+
+[tema](https://github.com/bjarneo/tema) is an interactive theme generator. You choose a wallpaper and mode, then apply the result. It is a good fit for creating a theme once.
+
+omarchy-auto-theme is a background pipeline. There is nothing to open after installation. A systemd path unit detects wallpaper changes and regenerates the active theme.
+
+### pywal and wallust
+
+[pywal](https://github.com/dylanaraps/pywal) and [wallust](https://codeberg.org/explosion-mental/wallust) provide general-purpose wallpaper colors. You usually need to connect each application yourself.
+
+This project feeds Omarchy's own theme engine instead. Existing Omarchy integrations continue to work and remain maintained through Omarchy updates. It also uses matugen's Material You color generation rather than direct dominant-color extraction.
 
 ## Uninstall
 
 ```bash
 ./uninstall.sh
-omarchy theme set tokyo-night   # or any theme you like
+omarchy theme set tokyo-night   # or another theme
 ```
 
-The uninstaller only removes files this project installed: the sync script and systemd units always (they're project-owned executables — tuning belongs in the settings file, which is kept), the matugen config and template only if you never modified them (it tells you which it kept). The theme directory (`~/.config/omarchy/themes/matugen-auto`) is left in place so you keep your backgrounds. Delete the kept files yourself if you want a full cleanup.
+The uninstaller always removes project-owned executables and systemd units. It removes the matugen config and template only when they have not been modified. Any retained files are listed.
+
+The settings file and `~/.config/omarchy/themes/matugen-auto` are kept, including your backgrounds. Delete them manually if you want a complete cleanup.
 
 ## License
 
