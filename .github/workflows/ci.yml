@@ -14,7 +14,9 @@ jobs:
           bash -n install.sh uninstall.sh bin/omarchy-matugen-sync \
             extras/omarchy-theme-set-tmux-transparent tests/run-tests.sh
       - name: shellcheck
-        run: shellcheck install.sh uninstall.sh bin/omarchy-matugen-sync tests/run-tests.sh
+        run: |
+          shellcheck install.sh uninstall.sh bin/omarchy-matugen-sync \
+            extras/omarchy-theme-set-tmux-transparent tests/run-tests.sh
       - name: systemd unit verification
         run: |
           # verify checks that ExecStart resolves, so stage the script where %h points

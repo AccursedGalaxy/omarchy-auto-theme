@@ -28,8 +28,13 @@ rm -f "$HOME/.config/systemd/user/omarchy-matugen.path" \
 systemctl --user daemon-reload
 
 rm -f "$HOME/.local/bin/omarchy-matugen-sync" \
-      "$HOME/.local/state/omarchy/matugen-auto.last" \
-      "$MATUGEN_DIR/quattro.toml.new"
+      "$HOME/.local/state/omarchy/matugen-auto.last"
+
+# quattro.toml.new is only ours if it still carries the v1.0.0 header.
+if [[ -f $MATUGEN_DIR/quattro.toml.new ]] \
+   && [[ $(head -n1 "$MATUGEN_DIR/quattro.toml.new") == "$LEGACY_MARKER" ]]; then
+  rm -f "$MATUGEN_DIR/quattro.toml.new"
+fi
 
 remove_owned "$MATUGEN_DIR/omarchy-auto-theme.toml" "$REPO_DIR/templates/omarchy-auto-theme.toml"
 remove_owned "$MATUGEN_DIR/templates/omarchy-quattro-colors.toml" "$REPO_DIR/templates/omarchy-quattro-colors.toml"
@@ -40,5 +45,9 @@ if [[ -f $MATUGEN_DIR/quattro.toml ]] \
    && [[ $(head -n1 "$MATUGEN_DIR/quattro.toml") == "$LEGACY_MARKER" ]]; then
   echo "Kept $MATUGEN_DIR/quattro.toml (installed by v1.0.0 — delete manually if you never customized it)"
 fi
+
+# The settings file is user-created tuning, never installed by us.
+[[ -f $HOME/.config/omarchy-auto-theme/settings ]] \
+  && echo "Kept ~/.config/omarchy-auto-theme/settings (your tuning — delete manually if unwanted)"
 
 echo "omarchy-auto-theme removed. Switch themes with: omarchy theme set <name>"

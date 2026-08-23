@@ -40,17 +40,28 @@ install_config "$REPO_DIR/templates/omarchy-auto-theme.toml" "$CONFIG"
 
 # Migrate away from the shared quattro.toml that v1.0.0 used. Only files that
 # carry our distributed header are touched; anything else is the user's.
-rm -f "$MATUGEN_DIR/quattro.toml.new"
+if [[ -f $MATUGEN_DIR/quattro.toml.new ]] \
+   && [[ $(head -n1 "$MATUGEN_DIR/quattro.toml.new") == "$LEGACY_MARKER" ]]; then
+  rm -f "$MATUGEN_DIR/quattro.toml.new"
+fi
 if [[ -f $MATUGEN_DIR/quattro.toml ]]; then
   if [[ $(head -n1 "$MATUGEN_DIR/quattro.toml") == "$LEGACY_MARKER" ]]; then
-    mv "$MATUGEN_DIR/quattro.toml" "$MATUGEN_DIR/quattro.toml.bak"
+    backup="$MATUGEN_DIR/quattro.toml.bak"
+    n=0
+    while [[ -e $backup ]]; do
+      n=$((n + 1)); backup="$MATUGEN_DIR/quattro.toml.bak.$n"
+    done
+    mv "$MATUGEN_DIR/quattro.toml" "$backup"
     warn "This project now uses its own config: $CONFIG"
-    warn "Your old quattro.toml was moved to quattro.toml.bak — if you added custom [templates.*] blocks, copy them into the new config."
+    warn "Your old quattro.toml was moved to $(basename "$backup") — if you added custom [templates.*] blocks, copy them into the new config."
   else
     warn "quattro.toml in ~/.config/matugen is no longer used by this project and was left untouched."
   fi
 fi
 
+# The sync script and systemd units are project-owned executables: installs
+# overwrite them and uninstall removes them. User tuning belongs in the
+# settings file the script sources, which we never touch.
 say "Installing sync script"
 mkdir -p "$HOME/.local/bin"
 cp "$REPO_DIR/bin/omarchy-matugen-sync" "$HOME/.local/bin/"
@@ -73,8 +84,17 @@ fi
 seed_bg=$(find "$THEME_DIR/backgrounds" "$(readlink -f "$user_bgs" 2>/dev/null || echo /nonexistent)" -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) 2>/dev/null | head -1 || true)
 [[ -n $seed_bg ]] || fail "No background image found to seed colors from. Put a wallpaper in $THEME_DIR/backgrounds/ and rerun."
 say "Generating initial colors from $(basename "$seed_bg")"
-matugen image "$seed_bg" --config "$CONFIG" --mode dark --prefer saturation
-[[ -s $THEME_DIR/colors.toml ]] || fail "matugen ran but $THEME_DIR/colors.toml was not generated. Check the [templates.omarchy_quattro] block in $CONFIG."
+# Honor the same user settings the sync script reads.
+PREFER=saturation MODE=dark
+# shellcheck source=/dev/null
+[[ -f $HOME/.config/omarchy-auto-theme/settings ]] && source "$HOME/.config/omarchy-auto-theme/settings"
+# A leftover colors.toml from an earlier install would make a broken config
+# look like success — require the output to be new or freshly rewritten.
+colors_before=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missing)
+matugen image "$seed_bg" --config "$CONFIG" --mode "$MODE" --prefer "$PREFER"
+colors_after=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missing)
+[[ -s $THEME_DIR/colors.toml && $colors_after != "$colors_before" ]] \
+  || fail "matugen ran but $THEME_DIR/colors.toml was not (re)generated. Check the [templates.omarchy_quattro] block in $CONFIG."
 
 # --- systemd watcher -------------------------------------------------------
 say "Installing systemd user units"
@@ -84,7 +104,10 @@ systemctl --user daemon-reload
 systemctl --user enable --now omarchy-matugen.path
 
 # One-shot service run: proves the sync script starts in the systemd
-# environment (PATH, unit file, script location) rather than just in this shell.
+# environment (PATH, unit file, script location) rather than just in this
+# shell. It is only a launch check — while another theme is active the script
+# exits before touching matugen; `omarchy-matugen-sync --diagnose` covers the
+# full pipeline.
 systemctl --user start omarchy-matugen.service \
   || fail "omarchy-matugen.service failed its validation run. Inspect with: journalctl --user -u omarchy-matugen.service"
 

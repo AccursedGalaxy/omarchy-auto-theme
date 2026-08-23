@@ -106,9 +106,16 @@ Two hard-won rules for those extra templates:
 After install, the palette mapping lives in `~/.config/matugen/templates/omarchy-quattro-colors.toml`. Two things to know before editing it:
 
 - matugen 4.x's `set_lightness` filter is absolute: it sets the HSL lightness percentage while keeping hue and saturation, and negative values clamp to black. The template relies on this for the background ramp and the bright colors.
-- Non-interactive matugen 4.x errors out with "Multiple source colors found" unless you pass `--prefer`. The sync script uses `--prefer saturation`; swap it for `darkness`, `lightness`, or another preference in `~/.local/bin/omarchy-matugen-sync` if you want a different vibe.
+- Non-interactive matugen 4.x errors out with "Multiple source colors found" unless you pass `--prefer`. The sync script uses `--prefer saturation` by default.
 
-For light mode, change `--mode dark` to `--mode light` in the sync script and `mode = "dark"` to `mode = "light"` in the template.
+To change the preference or switch to light mode, don't edit the sync script (installs overwrite it) — create `~/.config/omarchy-auto-theme/settings`:
+
+```sh
+PREFER=darkness   # or lightness, saturation, ...
+MODE=light        # or dark
+```
+
+Both the installer's initial generation and every later sync read it. For light mode, also change `mode = "dark"` to `mode = "light"` in the template. The settings file is yours: installs never touch it and uninstall keeps it.
 
 ## Troubleshooting
 
@@ -141,7 +148,7 @@ The sync script deliberately exits silently when the `matugen-auto` theme isn't 
 omarchy theme set tokyo-night   # or any theme you like
 ```
 
-The uninstaller only removes files this project installed. The theme directory (`~/.config/omarchy/themes/matugen-auto`) is left in place so you keep your backgrounds, and any config or template you modified is kept too (it tells you which). Delete those yourself if you want a full cleanup.
+The uninstaller only removes files this project installed: the sync script and systemd units always (they're project-owned executables — tuning belongs in the settings file, which is kept), the matugen config and template only if you never modified them (it tells you which it kept). The theme directory (`~/.config/omarchy/themes/matugen-auto`) is left in place so you keep your backgrounds. Delete the kept files yourself if you want a full cleanup.
 
 ## License
 

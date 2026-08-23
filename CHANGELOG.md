@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.0.2 — 2026-08-23
+
+Second-pass lifecycle hardening from the follow-up review.
+
+### Fixed
+- **Legacy migration could overwrite an existing `quattro.toml.bak`**: the
+  backup now takes a non-conflicting name (`quattro.toml.bak.1`, `.2`, ...)
+  when one already exists.
+- **Stale output no longer passes install validation**: the installer now
+  requires `colors.toml` to be newly written by its matugen run, so a leftover
+  file from an earlier install can't mask a config that stopped rendering.
+- `quattro.toml.new` is now only deleted when it still carries the v1.0.0
+  header; a repurposed file is left alone (install and uninstall).
+
+### Changed
+- **User tuning moved out of the sync script** into
+  `~/.config/omarchy-auto-theme/settings` (`PREFER=`, `MODE=`), read by both
+  the installer's initial generation and every sync. The sync script and
+  systemd units are project-owned executables: installs overwrite them,
+  uninstall removes them, and the settings file — never touched by either —
+  is where customization survives. Previously the README told you to edit the
+  installed script, which a reinstall would have clobbered.
+- The installer's one-shot service start is documented as a launch check only
+  (unit, PATH, script location); `omarchy-matugen-sync --diagnose` covers the
+  full pipeline.
+
+### Added
+- Tests for the new behavior and previously unexercised failure paths:
+  `.bak` collision, foreign `quattro.toml.new` preservation, stale
+  `colors.toml` rejection, matugen exiting 0 without output, `systemctl`
+  failures during install and uninstall, and settings-file overrides
+  (61 assertions, up from 45).
+- CI now ShellChecks the tmux shim too.
+
 ## v1.0.1 — 2026-08-23
 
 Configuration-lifecycle fixes from a pre-launch review. Upgrade by rerunning

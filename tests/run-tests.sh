@@ -28,6 +28,7 @@ cat >"$MOCKS/matugen" <<'EOF'
 echo "matugen $*" >>"$MOCK_LOG"
 [[ ${MOCK_MATUGEN_FAIL:-} == 1 ]] && exit 1
 if [[ $* == *--version* ]]; then echo "matugen mock"; exit 0; fi
+[[ ${MOCK_MATUGEN_NOOP:-} == 1 ]] && exit 0   # exits 0 without writing output
 mkdir -p "$HOME/.config/omarchy/themes/matugen-auto"
 echo "# mock colors" >"$HOME/.config/omarchy/themes/matugen-auto/colors.toml"
 EOF
@@ -38,6 +39,8 @@ EOF
 cat >"$MOCKS/systemctl" <<'EOF'
 #!/bin/bash
 echo "systemctl $*" >>"$MOCK_LOG"
+[[ ${MOCK_SYSTEMCTL_FAIL:-} == 1 ]] && exit 1
+exit 0
 EOF
 chmod +x "$MOCKS"/*
 export PATH="$MOCKS:$PATH"
@@ -56,7 +59,7 @@ fresh_home() { # name -> sets HOME and MOCK_LOG
   ln -sf "$MOCKS"/* "$HOME/.local/bin/"
   export MOCK_LOG="$HOME/mock.log"
   : >"$MOCK_LOG"
-  unset MOCK_MATUGEN_FAIL
+  unset MOCK_MATUGEN_FAIL MOCK_MATUGEN_NOOP MOCK_SYSTEMCTL_FAIL
 }
 
 CONFIG_REL=".config/matugen/omarchy-auto-theme.toml"
@@ -92,14 +95,27 @@ check "colors.toml generated despite foreign quattro.toml" test -s "$HOME/.confi
 
 # --- 4. Legacy v1.0.0 quattro.toml migration --------------------------------
 echo "test: migration of the v1.0.0 quattro.toml"
+LEGACY='# Matugen config for the omarchy-matugen adaptive theme.'
 fresh_home home-legacy
 mkdir -p "$HOME/.config/matugen"
-printf '# Matugen config for the omarchy-matugen adaptive theme.\n[config]\n' >"$HOME/.config/matugen/quattro.toml"
-printf 'stale' >"$HOME/.config/matugen/quattro.toml.new"
+printf '%s\n[config]\n' "$LEGACY" >"$HOME/.config/matugen/quattro.toml"
+printf '%s\nnewer\n' "$LEGACY" >"$HOME/.config/matugen/quattro.toml.new"
 check "installer exits 0" "$REPO_DIR/install.sh"
 check "legacy config moved to .bak" test -f "$HOME/.config/matugen/quattro.toml.bak"
 check "legacy config no longer active" test ! -f "$HOME/.config/matugen/quattro.toml"
-check "stale quattro.toml.new removed" test ! -f "$HOME/.config/matugen/quattro.toml.new"
+check "our stale quattro.toml.new removed" test ! -f "$HOME/.config/matugen/quattro.toml.new"
+
+echo "test: migration never clobbers an existing backup or a foreign .new"
+fresh_home home-bakcollision
+mkdir -p "$HOME/.config/matugen"
+printf '%s\n[config]\n' "$LEGACY" >"$HOME/.config/matugen/quattro.toml"
+printf '# precious earlier backup\n' >"$HOME/.config/matugen/quattro.toml.bak"
+printf '# repurposed by the user\n' >"$HOME/.config/matugen/quattro.toml.new"
+check "installer exits 0" "$REPO_DIR/install.sh"
+check "existing .bak untouched" grep -q "precious earlier backup" "$HOME/.config/matugen/quattro.toml.bak"
+check "legacy config backed up under a fresh name" grep -q "$LEGACY" "$HOME/.config/matugen/quattro.toml.bak.1"
+check "foreign quattro.toml.new kept" grep -q "repurposed by the user" "$HOME/.config/matugen/quattro.toml.new"
+check "foreign quattro.toml.new survives uninstall" bash -c "'$REPO_DIR/uninstall.sh' >/dev/null && grep -q 'repurposed by the user' '$HOME/.config/matugen/quattro.toml.new'"
 
 # --- 5. Failed matugen generation ------------------------------------------
 echo "test: matugen failure aborts before enabling the watcher"
@@ -112,6 +128,34 @@ else
 fi
 check "watcher never enabled" bash -c "! grep -q 'enable --now' '$MOCK_LOG'"
 unset MOCK_MATUGEN_FAIL
+
+# --- 5b. Stale output must not pass validation ------------------------------
+echo "test: matugen exiting 0 without output fails even with a stale colors.toml"
+fresh_home home-staleout
+mkdir -p "$HOME/.config/omarchy/themes/matugen-auto"
+echo "# colors from a previous install" >"$HOME/.config/omarchy/themes/matugen-auto/colors.toml"
+export MOCK_MATUGEN_NOOP=1
+if "$REPO_DIR/install.sh" >/dev/null 2>&1; then
+  FAILED=$((FAILED + 1)); note "FAIL installer should reject a stale colors.toml"
+else
+  PASS=$((PASS + 1))
+fi
+check "watcher never enabled" bash -c "! grep -q 'enable --now' '$MOCK_LOG'"
+unset MOCK_MATUGEN_NOOP
+
+# --- 5c. systemd failures ---------------------------------------------------
+echo "test: systemctl failure aborts install; uninstall still cleans up"
+fresh_home home-systemdfail
+export MOCK_SYSTEMCTL_FAIL=1
+if "$REPO_DIR/install.sh" >/dev/null 2>&1; then
+  FAILED=$((FAILED + 1)); note "FAIL installer should exit nonzero when systemctl fails"
+else
+  PASS=$((PASS + 1))
+fi
+check "uninstall exits 0 without a working user manager" "$REPO_DIR/uninstall.sh"
+check "units removed anyway" test ! -f "$HOME/.config/systemd/user/omarchy-matugen.service"
+check "sync script removed anyway" test ! -f "$HOME/.local/bin/omarchy-matugen-sync"
+unset MOCK_SYSTEMCTL_FAIL
 
 # --- 6. Uninstall after clean install --------------------------------------
 echo "test: uninstall after clean install"
@@ -176,6 +220,18 @@ check "in-place edit: exits 0" "$SYNC"
 check "in-place edit: regenerates (mtime fingerprint)" grep -q "matugen image" "$MOCK_LOG"
 
 check "--diagnose exits 0 on healthy install" "$SYNC" --diagnose
+
+echo "test: settings file overrides mode and prefer"
+mkdir -p "$HOME/.config/omarchy-auto-theme"
+printf 'MODE=light\nPREFER=darkness\n' >"$HOME/.config/omarchy-auto-theme/settings"
+touch -d '2002-02-02' "$STATE/wall.png"   # force a regeneration
+: >"$MOCK_LOG"
+check "sync exits 0 with settings file" "$SYNC"
+check "sync honors settings" grep -q -- "--mode light --prefer darkness" "$MOCK_LOG"
+: >"$MOCK_LOG"
+check "reinstall exits 0 with settings file" "$REPO_DIR/install.sh"
+check "install seed honors settings" grep -q -- "--mode light --prefer darkness" "$MOCK_LOG"
+check "uninstall keeps the settings file" bash -c "'$REPO_DIR/uninstall.sh' >/dev/null && test -f '$HOME/.config/omarchy-auto-theme/settings'"
 
 # ---------------------------------------------------------------------------
 echo
