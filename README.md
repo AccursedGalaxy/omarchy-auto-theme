@@ -1,12 +1,12 @@
 # omarchy-auto-theme
 
-Automatic wallpaper-based colors for [Omarchy](https://omarchy.org) 4.0 (Quattro).
+Automatic wallpaper-based colors for [Omarchy](https://omarchy.org) 4.0 (Quattro) on Hyprland.
 
 ![Switching wallpapers recolors the terminal and Neovim](assets/demo.gif)
 
 Change your wallpaper and the rest of the desktop follows.
 [matugen](https://github.com/InioX/matugen) creates a Material You palette from the image.
-The project passes that palette to Omarchy's theme engine, which updates the bar, notifications, lock screen, terminals, Neovim, btop, Claude Code, and other supported apps.
+The project passes that palette to Omarchy's theme engine, which updates the whole Hyprland desktop: bar, notifications, lock screen, terminals, Neovim, btop, Claude Code, and other supported apps.
 
 It works like pywal or wallust, but uses Omarchy's existing app integrations. It also leaves packaged Omarchy files untouched.
 
