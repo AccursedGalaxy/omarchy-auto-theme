@@ -13,7 +13,10 @@ LEGACY_MARKER='# Matugen config for the omarchy-matugen adaptive theme.'
 
 say() { printf '\033[32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33mNote:\033[0m %s\n' "$*"; }
-fail() { printf '\033[31mError:\033[0m %s\n' "$*" >&2; exit 1; }
+fail() {
+  printf '\033[31mError:\033[0m %s\n' "$*" >&2
+  exit 1
+}
 
 usage() {
   cat <<EOF
@@ -28,11 +31,19 @@ EOF
 WALLPAPERS=""
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --wallpapers)
-      [[ -n ${2:-} ]] || fail "--wallpapers needs a directory argument"
-      WALLPAPERS=$2; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
-    *) usage >&2; fail "unknown option: $1" ;;
+  --wallpapers)
+    [[ -n ${2:-} ]] || fail "--wallpapers needs a directory argument"
+    WALLPAPERS=$2
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    fail "unknown option: $1"
+    ;;
   esac
 done
 
@@ -61,8 +72,8 @@ install_config "$REPO_DIR/templates/omarchy-auto-theme.toml" "$CONFIG"
 
 # Migrate away from the shared quattro.toml that v1.0.0 used. Only files that
 # carry our distributed header are touched; anything else is the user's.
-if [[ -f $MATUGEN_DIR/quattro.toml.new ]] \
-   && [[ $(head -n1 "$MATUGEN_DIR/quattro.toml.new") == "$LEGACY_MARKER" ]]; then
+if [[ -f $MATUGEN_DIR/quattro.toml.new ]] &&
+  [[ $(head -n1 "$MATUGEN_DIR/quattro.toml.new") == "$LEGACY_MARKER" ]]; then
   rm -f "$MATUGEN_DIR/quattro.toml.new"
 fi
 if [[ -f $MATUGEN_DIR/quattro.toml ]]; then
@@ -70,7 +81,8 @@ if [[ -f $MATUGEN_DIR/quattro.toml ]]; then
     backup="$MATUGEN_DIR/quattro.toml.bak"
     n=0
     while [[ -e $backup ]]; do
-      n=$((n + 1)); backup="$MATUGEN_DIR/quattro.toml.bak.$n"
+      n=$((n + 1))
+      backup="$MATUGEN_DIR/quattro.toml.bak.$n"
     done
     mv "$MATUGEN_DIR/quattro.toml" "$backup"
     warn "This project now uses its own config: $CONFIG"
@@ -96,47 +108,101 @@ user_bgs="$HOME/.config/omarchy/backgrounds/matugen-auto"
 # real managed dir — NOT a dir symlink: omarchy-theme-bg-set stores the
 # current background through realpath while omarchy-theme-bg-next compares
 # unresolved find paths, so behind a symlink the two never match and every
-# "next" (hotkey and rotation alike) pins to the first image. The marker file
-# records the source folder so later installs refresh the collection.
+# "next" (hotkey and rotation alike) pins to the first image.
+#
+# The marker file is a manifest: line 1 is the source folder, the rest are
+# the basenames this installer linked. Refreshes only ever touch listed
+# names. This dir is also Omarchy's documented drop-zone for user
+# backgrounds, and files the user put here by hand must never be deleted.
 MANAGED_MARKER=".omarchy-auto-theme-source"
-# No flag, but a previous --wallpapers install recorded its source: refresh
-# from it so newly added images are picked up by a plain rerun.
-if [[ -z $WALLPAPERS && -f $user_bgs/$MANAGED_MARKER ]]; then
-  recorded_src=$(cat "$user_bgs/$MANAGED_MARKER")
-  [[ -d $recorded_src ]] && WALLPAPERS=$recorded_src
+img_find() { # dir [find-action...]
+  local dir=$1
+  shift
+  find "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.bmp' -o -iname '*.webp' \) "$@" 2>/dev/null || true
+}
+adopted=""
+if [[ -z $WALLPAPERS ]]; then
+  if [[ -L $user_bgs ]]; then
+    # v1.1.0 linked the whole dir; adopt the target so a plain rerun still
+    # migrates it — the bg-next fix must reach flagless upgraders.
+    WALLPAPERS=$(readlink -f "$user_bgs" 2>/dev/null || true)
+    adopted=1
+  elif [[ -f $user_bgs/$MANAGED_MARKER ]]; then
+    # Refresh from the recorded source so newly added images are picked up.
+    WALLPAPERS=$(head -n1 "$user_bgs/$MANAGED_MARKER")
+    adopted=1
+  fi
 fi
 if [[ -n $WALLPAPERS ]]; then
-  wallpapers_resolved=$(readlink -f "$WALLPAPERS" 2>/dev/null || true)
-  [[ -n $wallpapers_resolved && -d $wallpapers_resolved ]] || fail "--wallpapers: not a directory: $WALLPAPERS"
-  WALLPAPERS=$wallpapers_resolved
-  first_img=$(find "$WALLPAPERS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) -print -quit 2>/dev/null || true)
-  [[ -n $first_img ]] || fail "--wallpapers: no images (jpg/png/jpeg/webp) found in $WALLPAPERS"
+  src=$(readlink -f "$WALLPAPERS" 2>/dev/null || true)
+  src_err=""
+  if [[ -z $src || ! -d $src ]]; then
+    src_err="not a directory: $WALLPAPERS"
+  elif [[ ! -L $user_bgs && $src -ef $user_bgs ]]; then
+    src_err="source is the managed collection itself: $src"
+  elif [[ -z $(img_find "$src" -print -quit) ]]; then
+    src_err="no images (jpg/jpeg/png/gif/bmp/webp) found in $src"
+  fi
+  if [[ -n $src_err ]]; then
+    # Only an explicit flag is allowed to abort; a remembered source that
+    # went bad must not break an otherwise-routine reinstall.
+    [[ -z $adopted ]] && fail "--wallpapers: $src_err"
+    warn "Wallpaper collection not refreshed ($src_err) — keeping the current one."
+    WALLPAPERS=""
+  else
+    WALLPAPERS=$src
+  fi
+fi
+if [[ -n $WALLPAPERS ]]; then
   mkdir -p "$HOME/.config/omarchy/backgrounds"
   # Migrate the dir symlink an earlier version created.
   [[ -L $user_bgs ]] && rm "$user_bgs"
-  # A real dir we did not create is user data: back it up, never merge into it.
+  # A real dir without our manifest is user data: back it up, never merge.
   if [[ -d $user_bgs && ! -f $user_bgs/$MANAGED_MARKER ]]; then
     backup="$user_bgs.bak"
     n=0
     while [[ -e $backup ]]; do
-      n=$((n + 1)); backup="$user_bgs.bak.$n"
+      n=$((n + 1))
+      backup="$user_bgs.bak.$n"
     done
     mv "$user_bgs" "$backup"
     warn "Existing $(basename "$user_bgs") background dir moved to $(basename "$backup")"
   fi
-  # Refresh the managed dir to mirror the source folder exactly: stale
-  # entries removed, current images hardlinked in (copy as fallback).
   mkdir -p "$user_bgs"
-  find "$user_bgs" -maxdepth 1 -type f ! -name "$MANAGED_MARKER" -delete
-  printf '%s\n' "$WALLPAPERS" >"$user_bgs/$MANAGED_MARKER"
+  # Names we linked last time. A legacy marker holds only the source line;
+  # treat every image as ours then (nothing else ever wrote that format).
+  old_manifest=()
+  if [[ -f $user_bgs/$MANAGED_MARKER ]]; then
+    mapfile -t old_manifest < <(tail -n +2 "$user_bgs/$MANAGED_MARKER")
+    if [[ ${#old_manifest[@]} -eq 0 ]]; then
+      mapfile -t old_manifest < <(img_find "$user_bgs" -printf '%f\n')
+    fi
+  fi
+  linked=()
   while IFS= read -r -d '' img; do
-    ln -f "$img" "$user_bgs/$(basename "$img")" 2>/dev/null || cp -f "$img" "$user_bgs/$(basename "$img")"
-  done < <(find "$WALLPAPERS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) -print0 2>/dev/null)
+    base=$(basename "$img")
+    ln -f "$img" "$user_bgs/$base" 2>/dev/null || cp -f "$img" "$user_bgs/$base"
+    linked+=("$base")
+  done < <(img_find "$WALLPAPERS" -print0)
+  # Drop only OUR stale entries: listed in the old manifest, gone from the
+  # source. Anything unlisted is the user's and stays.
+  for name in "${old_manifest[@]}"; do
+    keep=""
+    for base in "${linked[@]}"; do [[ $base == "$name" ]] && keep=1 && break; done
+    [[ -z $keep ]] && rm -f "$user_bgs/$name"
+  done
+  {
+    printf '%s\n' "$WALLPAPERS"
+    printf '%s\n' "${linked[@]}"
+  } >"$user_bgs/$MANAGED_MARKER"
   say "Wallpaper collection synced from: $WALLPAPERS"
 fi
 # -print -quit: find stops itself at the first hit — no pipe, no pipefail/
 # SIGPIPE hazard that a `| grep -q .` construction would carry.
-existing_bg=$(find "$THEME_DIR/backgrounds" "$(readlink -f "$user_bgs" 2>/dev/null || echo /nonexistent)" -type f -print -quit 2>/dev/null || true)
+existing_bg=$(
+  img_find "$THEME_DIR/backgrounds" -print -quit
+  img_find "$user_bgs" -print -quit
+)
 if [[ -z $existing_bg ]]; then
   say "Seeding starter backgrounds from the stock tokyo-night theme"
   cp "$OMARCHY_SHARE"/themes/tokyo-night/backgrounds/* "$THEME_DIR/backgrounds/" 2>/dev/null || true
@@ -144,7 +210,8 @@ fi
 
 # Generate an initial colors.toml so `omarchy theme set` has something to load,
 # and prove the config actually renders our template before enabling anything.
-seed_bg=$(find "$THEME_DIR/backgrounds" "$(readlink -f "$user_bgs" 2>/dev/null || echo /nonexistent)" -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) -print -quit 2>/dev/null || true)
+seed_bg=$(img_find "$THEME_DIR/backgrounds" -print -quit)
+[[ -n $seed_bg ]] || seed_bg=$(img_find "$user_bgs" -print -quit)
 # On a reinstall while matugen-auto is active, the first image in the folder
 # is usually NOT the wallpaper on screen — seeding from it would leave
 # colors.toml describing the wrong image. Prefer the live wallpaper then.
@@ -178,7 +245,7 @@ if [[ ! -e $SETTINGS_FILE ]]; then
 #ROTATE=30m
 EOF
   say "Created settings file: $SETTINGS_FILE"
-elif ! grep -q ROTATE "$SETTINGS_FILE"; then
+elif ! grep -q '^#\?ROTATE=' "$SETTINGS_FILE"; then
   # Upgrade path: a settings file from before the ROTATE knob existed. We
   # never rewrite user settings, but appending the commented doc block keeps
   # new knobs discoverable without one.
@@ -196,7 +263,7 @@ fi
 PREFER=saturation MODE=dark ROTATE=
 # shellcheck source=/dev/null
 [[ -f $SETTINGS_FILE ]] && source "$SETTINGS_FILE"
-case $MODE in dark|light) ;; *) fail "invalid MODE '$MODE' in ~/.config/omarchy-auto-theme/settings (dark|light)" ;; esac
+case $MODE in dark | light) ;; *) fail "invalid MODE '$MODE' in ~/.config/omarchy-auto-theme/settings (dark|light)" ;; esac
 [[ $PREFER =~ ^[a-zA-Z0-9_-]+$ ]] || fail "invalid PREFER '$PREFER' in ~/.config/omarchy-auto-theme/settings"
 [[ $ROTATE =~ ^(daily|[1-9][0-9]*[mh])?$ ]] || fail "invalid ROTATE '$ROTATE' in ~/.config/omarchy-auto-theme/settings (unset, daily, or an interval like 30m or 2h)"
 # A leftover colors.toml from an earlier install would make a broken config
@@ -204,15 +271,15 @@ case $MODE in dark|light) ;; *) fail "invalid MODE '$MODE' in ~/.config/omarchy-
 colors_before=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missing)
 matugen image "$seed_bg" --config "$CONFIG" --mode "$MODE" --prefer "$PREFER"
 colors_after=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missing)
-[[ -s $THEME_DIR/colors.toml && $colors_after != "$colors_before" ]] \
-  || fail "matugen ran but $THEME_DIR/colors.toml was not (re)generated. Check the [templates.omarchy_quattro] block in $CONFIG."
+[[ -s $THEME_DIR/colors.toml && $colors_after != "$colors_before" ]] ||
+  fail "matugen ran but $THEME_DIR/colors.toml was not (re)generated. Check the [templates.omarchy_quattro] block in $CONFIG."
 
 # --- systemd watcher -------------------------------------------------------
 say "Installing systemd user units"
 mkdir -p "$HOME/.config/systemd/user"
 cp "$REPO_DIR/systemd/omarchy-matugen.path" "$REPO_DIR/systemd/omarchy-matugen.service" \
-   "$REPO_DIR/systemd/omarchy-bg-rotate.timer" "$REPO_DIR/systemd/omarchy-bg-rotate.service" \
-   "$HOME/.config/systemd/user/"
+  "$REPO_DIR/systemd/omarchy-bg-rotate.timer" "$REPO_DIR/systemd/omarchy-bg-rotate.service" \
+  "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
 systemctl --user enable --now omarchy-matugen.path
 
@@ -224,10 +291,10 @@ systemctl --user enable --now omarchy-matugen.path
 # omarchy-theme-refresh when matugen-auto is active, so a reinstall leaves
 # running apps on the palette of the wallpaper actually on screen.
 rm -f "$HOME/.local/state/omarchy/matugen-auto.last"
-systemctl --user start omarchy-matugen.service \
-  || fail "omarchy-matugen.service failed its validation run. Inspect with: journalctl --user -u omarchy-matugen.service"
-# That validation run also reconciled the rotation timer against ROTATE.
-[[ -n $ROTATE ]] && say "Wallpaper rotation enabled: $([[ $ROTATE == daily ]] && echo "a new wallpaper every morning" || echo "every $ROTATE")"
+systemctl --user start omarchy-matugen.service ||
+  fail "omarchy-matugen.service failed its validation run. Inspect with: journalctl --user -u omarchy-matugen.service"
+# The validation run also reconciles the rotation timer against ROTATE.
+[[ -n $ROTATE ]] && say "Wallpaper rotation configured: $([[ $ROTATE == daily ]] && echo "a new wallpaper each day (midnight, or on wake)" || echo "every $ROTATE")"
 
 say "Done. Activate with: omarchy theme set matugen-auto"
 say "Then change wallpapers with SUPER+CTRL+SPACE — colors follow automatically."

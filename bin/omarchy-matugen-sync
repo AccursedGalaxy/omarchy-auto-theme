@@ -38,27 +38,37 @@ case $MODE in dark|light) ;; *) echo "omarchy-matugen-sync: invalid MODE '$MODE'
 # effect on the next wallpaper/theme change — no install rerun needed.
 ROTATE_DROPIN="$HOME/.config/systemd/user/omarchy-bg-rotate.timer.d/interval.conf"
 reconcile_rotation() {
+  # The leading empty assignments reset the base unit's placeholder schedule
+  # so only the generated one is in effect.
   local desired=
   if [[ $ROTATE == daily ]]; then
-    # Persistent: a missed midnight fire (laptop asleep) runs on wake, so the
-    # "new wallpaper every morning" contract survives suspend.
+    # Persistent: a missed midnight fire (laptop asleep) runs on wake, so a
+    # new wallpaper still arrives each day.
     desired="[Timer]
+OnActiveSec=
+OnUnitActiveSec=
 OnCalendar=daily
 Persistent=true"
   elif [[ -n $ROTATE ]]; then
     # OnActiveSec covers the first fire after enabling; no Persistent so a
     # wake after suspend doesn't force an immediate rotation.
     desired="[Timer]
+OnActiveSec=
+OnUnitActiveSec=
 OnActiveSec=$ROTATE
 OnUnitActiveSec=$ROTATE
 Persistent=false"
   fi
   if [[ -z $desired ]]; then
-    [[ -e $ROTATE_DROPIN ]] || return 0
-    systemctl --user disable --now omarchy-bg-rotate.timer 2>/dev/null || true
-    rm -f "$ROTATE_DROPIN"
-    rmdir "${ROTATE_DROPIN%/*}" 2>/dev/null || true
-    systemctl --user daemon-reload 2>/dev/null || true
+    # Also repair the orphan state: timer left enabled with no drop-in would
+    # fire on the base unit's placeholder schedule.
+    if [[ -e $ROTATE_DROPIN ]] \
+       || systemctl --user is-enabled --quiet omarchy-bg-rotate.timer 2>/dev/null; then
+      systemctl --user disable --now omarchy-bg-rotate.timer 2>/dev/null || true
+      rm -f "$ROTATE_DROPIN"
+      rmdir "${ROTATE_DROPIN%/*}" 2>/dev/null || true
+      systemctl --user daemon-reload 2>/dev/null || true
+    fi
     return 0
   fi
   [[ $desired == "$(cat "$ROTATE_DROPIN" 2>/dev/null)" ]] \
@@ -114,7 +124,9 @@ diagnose() {
 
 # Before the theme guard: rotation follows the ROTATE knob alone, and keeps
 # working (and keeps being reconfigurable) even while another theme is active.
-reconcile_rotation
+# Rotation is auxiliary — a failure here must never stop the color sync.
+reconcile_rotation \
+  || echo "omarchy-matugen-sync: rotation reconcile failed (colors unaffected)" >&2
 
 # Only act while the adaptive theme is active.
 theme_name=$(cat "$STATE_DIR/current/theme.name" 2>/dev/null || true)

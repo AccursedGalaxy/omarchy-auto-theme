@@ -8,10 +8,19 @@
   through `realpath` while `omarchy-theme-bg-next` compares unresolved paths —
   behind a dir symlink they never match, so every "next" (SUPER+CTRL+SPACE and
   the new rotation timer alike) pinned to the alphabetically first image. The
-  installer now hardlinks the images into a real managed directory (marker
-  file records the source folder), migrates the old symlink automatically, and
-  a plain `./install.sh` rerun refreshes the collection from the remembered
-  folder.
+  installer now hardlinks the images into a real managed directory, migrates
+  the old symlink automatically (with or without the flag), and a plain
+  `./install.sh` rerun refreshes the collection from the remembered folder. A
+  manifest records exactly which files the installer linked: refreshes and
+  uninstall only ever touch those, so wallpapers dropped into the directory by
+  hand are never deleted. A remembered folder that has gone missing or empty
+  downgrades to a warning on flagless reruns instead of aborting the install,
+  and pointing `--wallpapers` at the managed directory itself is rejected.
+- **Rotation hardening:** the reconciler can no longer abort the color sync
+  (failures warn and continue), an orphaned enabled timer without its schedule
+  drop-in is disabled instead of firing on a fallback schedule, and the
+  shipped timer unit now loads cleanly on its own (`systemd-analyze verify`
+  covered in the test suite).
 
 ### Added
 - **Wallpaper rotation** via a single `ROTATE` knob in

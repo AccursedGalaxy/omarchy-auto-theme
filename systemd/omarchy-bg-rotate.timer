@@ -1,11 +1,13 @@
 [Unit]
 Description=Periodic wallpaper rotation for omarchy-auto-theme
 
-# The schedule lives in the drop-in omarchy-bg-rotate.timer.d/interval.conf,
-# generated from the ROTATE setting by omarchy-matugen-sync. This file alone
-# never fires.
+# Placeholder schedule so the unit always loads cleanly; the drop-in
+# omarchy-bg-rotate.timer.d/interval.conf (generated from the ROTATE setting
+# by omarchy-matugen-sync) resets and replaces it. The timer is only ever
+# enabled while ROTATE is set.
 [Timer]
-Unit=omarchy-bg-rotate.service
+OnActiveSec=30m
+OnUnitActiveSec=30m
 
 [Install]
 WantedBy=timers.target

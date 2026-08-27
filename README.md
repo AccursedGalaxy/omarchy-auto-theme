@@ -44,7 +44,7 @@ This hardlinks the folder's images into the theme's background collection (a pla
 
 The images are linked rather than the directory itself: Omarchy's background cycling compares unresolved paths against a `realpath`-resolved link, so behind a directory symlink every "next wallpaper" resolves to the same first image.
 
-If you add or remove wallpapers later, rerun `./install.sh` — it refreshes the collection from the remembered folder. Omarchy also snapshots backgrounds when a theme is applied, so run `omarchy theme set matugen-auto` again to show new ones in the switcher. Color generation always uses the current wallpaper.
+If you add or remove wallpapers later, rerun `./install.sh` — it refreshes the collection from the remembered folder. The refresh only touches images it linked itself: files you drop into `~/.config/omarchy/backgrounds/matugen-auto/` by hand are kept, both on refresh and on uninstall. Omarchy also snapshots backgrounds when a theme is applied, so run `omarchy theme set matugen-auto` again to show new ones in the switcher. Color generation always uses the current wallpaper.
 
 ## How it works
 

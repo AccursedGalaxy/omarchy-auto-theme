@@ -46,6 +46,10 @@ cat >"$MOCKS/systemctl" <<'EOF'
 #!/bin/bash
 echo "systemctl $*" >>"$MOCK_LOG"
 [[ ${MOCK_SYSTEMCTL_FAIL:-} == 1 ]] && exit 1
+case " $* " in
+  *" is-enabled "*) exit "${MOCK_TIMER_ENABLED:-1}" ;;   # default: not enabled
+  *" is-active "*)  exit "${MOCK_TIMER_ACTIVE:-0}" ;;    # default: active
+esac
 exit 0
 EOF
 chmod +x "$MOCKS"/*
@@ -65,7 +69,8 @@ fresh_home() { # name -> sets HOME and MOCK_LOG
   ln -sf "$MOCKS"/* "$HOME/.local/bin/"
   export MOCK_LOG="$HOME/mock.log"
   : >"$MOCK_LOG"
-  unset MOCK_MATUGEN_FAIL MOCK_MATUGEN_NOOP MOCK_SYSTEMCTL_FAIL MOCK_REFRESH_FAIL
+  unset MOCK_MATUGEN_FAIL MOCK_MATUGEN_NOOP MOCK_SYSTEMCTL_FAIL MOCK_REFRESH_FAIL \
+        MOCK_TIMER_ENABLED MOCK_TIMER_ACTIVE
 }
 
 CONFIG_REL=".config/matugen/omarchy-auto-theme.toml"
@@ -311,8 +316,9 @@ USER_BGS="$HOME/.config/omarchy/backgrounds/matugen-auto"
 check "background dir is a real dir (not a symlink)" \
   bash -c "[[ -d '$USER_BGS' && ! -L '$USER_BGS' ]]"
 check "image hardlinked in" bash -c "[[ '$USER_BGS/mine.png' -ef '$HOME/Pictures/Walls/mine.png' ]]"
-check "marker records the source folder" \
-  bash -c "[[ \$(cat '$USER_BGS/.omarchy-auto-theme-source') == '$HOME/Pictures/Walls' ]]"
+check "manifest records the source folder" \
+  bash -c "[[ \$(head -n1 '$USER_BGS/.omarchy-auto-theme-source') == '$HOME/Pictures/Walls' ]]"
+check "manifest lists the linked image" grep -qx "mine.png" "$USER_BGS/.omarchy-auto-theme-source"
 check "no starter backgrounds seeded" \
   bash -c "! find '$HOME/.config/omarchy/themes/matugen-auto/backgrounds' -type f 2>/dev/null | grep -q ."
 check "initial colors generated from the managed collection" \
@@ -412,7 +418,8 @@ check "timer disabled" grep -q "disable --now omarchy-bg-rotate.timer" "$MOCK_LO
 check "drop-in removed" test ! -e "$DROPIN"
 : >"$MOCK_LOG"
 check "already-off: sync exits 0" "$SYNC"
-check "already-off: no systemctl churn" bash -c "! grep -q omarchy-bg-rotate '$MOCK_LOG'"
+check "already-off: no enable/disable churn" \
+  bash -c "! grep -qE '(enable|disable) --now omarchy-bg-rotate' '$MOCK_LOG'"
 
 echo "test: --rotate calls omarchy-theme-bg-next"
 : >"$MOCK_LOG"
@@ -434,6 +441,92 @@ check "uninstaller exits 0" "$REPO_DIR/uninstall.sh"
 check "rotate timer disabled" grep -q "disable --now omarchy-bg-rotate.timer" "$MOCK_LOG"
 check "rotate units removed" bash -c "! ls '$HOME/.config/systemd/user/'omarchy-bg-rotate.* >/dev/null 2>&1"
 check "drop-in dir removed" test ! -e "$HOME/.config/systemd/user/omarchy-bg-rotate.timer.d"
+
+# --- 13. Review-driven hardening ---------------------------------------------
+echo "test: flagless rerun migrates the v1.1 dir symlink"
+fresh_home home-flagless-migrate
+mkdir -p "$HOME/Pictures/Walls" "$HOME/.config/omarchy/backgrounds"
+printf 'img' >"$HOME/Pictures/Walls/mine.png"
+ln -s "$HOME/Pictures/Walls" "$HOME/.config/omarchy/backgrounds/matugen-auto"
+check "plain install exits 0" "$REPO_DIR/install.sh"
+UB="$HOME/.config/omarchy/backgrounds/matugen-auto"
+check "symlink replaced by managed dir" bash -c "[[ -d '$UB' && ! -L '$UB' ]]"
+check "image adopted" bash -c "[[ '$UB/mine.png' -ef '$HOME/Pictures/Walls/mine.png' ]]"
+check "manifest lists the linked file" grep -qx "mine.png" "$UB/.omarchy-auto-theme-source"
+
+echo "test: user-dropped files in the managed dir survive refresh and uninstall"
+printf 'precious' >"$UB/handadded.png"
+printf 'img2' >"$HOME/Pictures/Walls/second.png"
+rm "$HOME/Pictures/Walls/mine.png"
+check "flagless refresh exits 0" "$REPO_DIR/install.sh"
+check "user file untouched" grep -q "precious" "$UB/handadded.png"
+check "our stale link removed" test ! -e "$UB/mine.png"
+check "new source image linked" test -f "$UB/second.png"
+check "user file not in manifest" bash -c "! grep -qx 'handadded.png' '$UB/.omarchy-auto-theme-source'"
+check "uninstall exits 0" "$REPO_DIR/uninstall.sh"
+check "uninstall keeps the user file" grep -q "precious" "$UB/handadded.png"
+check "uninstall removes our links and manifest" \
+  bash -c "[[ ! -e '$UB/second.png' && ! -e '$UB/.omarchy-auto-theme-source' ]]"
+
+echo "test: a remembered source gone bad never aborts a plain reinstall"
+fresh_home home-bad-source
+mkdir -p "$HOME/Pictures/Walls"
+printf 'img' >"$HOME/Pictures/Walls/mine.png"
+"$REPO_DIR/install.sh" --wallpapers "$HOME/Pictures/Walls" >/dev/null 2>&1
+rm "$HOME/Pictures/Walls/mine.png"    # emptied source
+check "plain rerun exits 0 despite empty source" "$REPO_DIR/install.sh"
+check "collection kept" test -f "$HOME/.config/omarchy/backgrounds/matugen-auto/mine.png"
+rm -rf "$HOME/Pictures/Walls"         # vanished source
+check "plain rerun exits 0 despite missing source" "$REPO_DIR/install.sh"
+check "explicit flag on empty dir still fails" \
+  bash -c "mkdir -p '$HOME/empty' && ! '$REPO_DIR/install.sh' --wallpapers '$HOME/empty' >/dev/null 2>&1"
+
+echo "test: --wallpapers pointing at the managed dir itself is rejected"
+check "self-referential source fails" bash -c \
+  "! '$REPO_DIR/install.sh' --wallpapers '$HOME/.config/omarchy/backgrounds/matugen-auto' >/dev/null 2>&1"
+check "collection survives the rejected run" \
+  test -f "$HOME/.config/omarchy/backgrounds/matugen-auto/mine.png"
+
+echo "test: rotation reconcile failures never stop the color sync"
+fresh_home home-reconcile-fail
+"$REPO_DIR/install.sh" >/dev/null 2>&1
+SYNC="$HOME/.local/bin/omarchy-matugen-sync"
+STATE="$HOME/.local/state/omarchy"
+mkdir -p "$STATE/current" "$HOME/.config/omarchy-auto-theme"
+printf 'wall' >"$STATE/wall.png"
+ln -sf "$STATE/wall.png" "$STATE/current/background"
+echo "Matugen Auto" >"$STATE/current/theme.name"
+printf 'ROTATE=30m\n' >"$HOME/.config/omarchy-auto-theme/settings"
+export MOCK_SYSTEMCTL_FAIL=1
+: >"$MOCK_LOG"
+check "sync exits 0 with failing systemctl" "$SYNC"
+check "colors still regenerate" grep -q "matugen image" "$MOCK_LOG"
+unset MOCK_SYSTEMCTL_FAIL
+
+echo "test: orphan enabled timer without a drop-in is disabled"
+: >"$HOME/.config/omarchy-auto-theme/settings"   # ROTATE off
+rm -rf "$HOME/.config/systemd/user/omarchy-bg-rotate.timer.d"
+export MOCK_TIMER_ENABLED=0
+touch -d '2004-04-04' "$STATE/wall.png"
+: >"$MOCK_LOG"
+check "sync exits 0" "$SYNC"
+check "orphan timer disabled" grep -q "disable --now omarchy-bg-rotate.timer" "$MOCK_LOG"
+unset MOCK_TIMER_ENABLED
+
+if command -v systemd-analyze >/dev/null 2>&1; then
+  echo "test: shipped units verify (base alone, and with each drop-in shape)"
+  UNITS="$WORK/unit-verify"
+  mkdir -p "$UNITS/omarchy-bg-rotate.timer.d"
+  cp "$REPO_DIR"/systemd/omarchy-bg-rotate.timer "$REPO_DIR"/systemd/omarchy-bg-rotate.service "$UNITS/"
+  check "base timer loads without drop-in" \
+    bash -c "SYSTEMD_UNIT_PATH='$UNITS' systemd-analyze verify --user omarchy-bg-rotate.timer 2>&1 | { ! grep -q 'bad unit file'; }"
+  printf '[Timer]\nOnActiveSec=\nOnUnitActiveSec=\nOnActiveSec=45m\nOnUnitActiveSec=45m\nPersistent=false\n' >"$UNITS/omarchy-bg-rotate.timer.d/interval.conf"
+  check "interval drop-in verifies" \
+    bash -c "SYSTEMD_UNIT_PATH='$UNITS' systemd-analyze verify --user omarchy-bg-rotate.timer 2>&1 | { ! grep -q 'bad unit file'; }"
+  printf '[Timer]\nOnActiveSec=\nOnUnitActiveSec=\nOnCalendar=daily\nPersistent=true\n' >"$UNITS/omarchy-bg-rotate.timer.d/interval.conf"
+  check "daily drop-in verifies" \
+    bash -c "SYSTEMD_UNIT_PATH='$UNITS' systemd-analyze verify --user omarchy-bg-rotate.timer 2>&1 | { ! grep -q 'bad unit file'; }"
+fi
 
 # ---------------------------------------------------------------------------
 echo

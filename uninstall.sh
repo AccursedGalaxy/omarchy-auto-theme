@@ -59,6 +59,18 @@ if [[ -f $MATUGEN_DIR/quattro.toml ]] \
   echo "Kept $MATUGEN_DIR/quattro.toml (installed by v1.0.0 — delete manually if you never customized it)"
 fi
 
+# Managed wallpaper collection: remove only the entries our manifest lists —
+# files the user dropped into the dir by hand stay.
+user_bgs="$HOME/.config/omarchy/backgrounds/matugen-auto"
+if [[ -f $user_bgs/.omarchy-auto-theme-source ]]; then
+  while IFS= read -r name; do
+    [[ -n $name && $name != */* ]] && rm -f "$user_bgs/$name"
+  done < <(tail -n +2 "$user_bgs/.omarchy-auto-theme-source")
+  rm -f "$user_bgs/.omarchy-auto-theme-source"
+  rmdir "$user_bgs" 2>/dev/null \
+    || echo "Kept $user_bgs (files you added — delete manually if unwanted)"
+fi
+
 # The settings file is user-created tuning, never installed by us.
 [[ -f $HOME/.config/omarchy-auto-theme/settings ]] \
   && echo "Kept ~/.config/omarchy-auto-theme/settings (your tuning — delete manually if unwanted)"
