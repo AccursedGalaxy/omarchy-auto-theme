@@ -213,7 +213,7 @@ seed_bg=$(img_find "$THEME_DIR/backgrounds" -print -quit)
 # On a reinstall while matugen-auto is active, the first image in the folder
 # is usually not the wallpaper on screen, and seeding from it would leave
 # colors.toml describing the wrong image. Prefer the live wallpaper then.
-current_theme=$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null | tr '[:upper:] ' '[:lower:]-' || true)
+current_theme=$(tr '[:upper:] ' '[:lower:]-' <"$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null || true)
 current_bg=$(readlink -f "$HOME/.local/state/omarchy/current/background" 2>/dev/null || true)
 if [[ $current_theme == matugen-auto && -n $current_bg && -f $current_bg ]]; then
   seed_bg=$current_bg
