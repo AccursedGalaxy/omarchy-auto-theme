@@ -330,6 +330,29 @@ mkdir -p "$HOME/empty"
 check "dir without images fails" bash -c "! '$REPO_DIR/install.sh' --wallpapers '$HOME/empty' >/dev/null 2>&1"
 check "unknown option fails" bash -c "! '$REPO_DIR/install.sh' --bogus >/dev/null 2>&1"
 
+# --- 11b. Reinstall while the theme is live ----------------------------------
+echo "test: reinstall seeds from the wallpaper on screen, not the first file"
+fresh_home home-live-reinstall
+mkdir -p "$HOME/Pictures/Walls" "$HOME/.local/state/omarchy/current"
+printf 'a' >"$HOME/Pictures/Walls/aaa-first.png"
+printf 'b' >"$HOME/Pictures/Walls/zzz-current.png"
+"$REPO_DIR/install.sh" --wallpapers "$HOME/Pictures/Walls" >/dev/null 2>&1
+echo "Matugen Auto" >"$HOME/.local/state/omarchy/current/theme.name"
+ln -sf "$HOME/Pictures/Walls/zzz-current.png" "$HOME/.local/state/omarchy/current/background"
+printf 'stale\n' >"$HOME/.local/state/omarchy/matugen-auto.last"
+: >"$MOCK_LOG"
+check "reinstall exits 0" "$REPO_DIR/install.sh"
+check "seed uses the current wallpaper" grep -q "matugen image $HOME/Pictures/Walls/zzz-current.png" "$MOCK_LOG"
+check "fingerprint cleared so the validation run refreshes" test ! -e "$HOME/.local/state/omarchy/matugen-auto.last"
+echo "Other Theme" >"$HOME/.local/state/omarchy/current/theme.name"
+printf 'x' >"$HOME/other-theme-bg.png"
+ln -sf "$HOME/other-theme-bg.png" "$HOME/.local/state/omarchy/current/background"
+: >"$MOCK_LOG"
+check "reinstall exits 0 under another theme" "$REPO_DIR/install.sh"
+check "inactive theme: another theme's wallpaper is not used as seed" \
+  bash -c "! grep -q 'matugen image $HOME/other-theme-bg.png' '$MOCK_LOG'"
+check "inactive theme: seed comes from the wallpaper folder" grep -q "matugen image $HOME/Pictures/Walls/" "$MOCK_LOG"
+
 # --- 12. Wallpaper rotation (ROTATE) ----------------------------------------
 echo "test: rotation units installed but timer stays off without ROTATE"
 fresh_home home-rotate

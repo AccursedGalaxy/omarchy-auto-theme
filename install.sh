@@ -123,6 +123,14 @@ fi
 # Generate an initial colors.toml so `omarchy theme set` has something to load,
 # and prove the config actually renders our template before enabling anything.
 seed_bg=$(find "$THEME_DIR/backgrounds" "$(readlink -f "$user_bgs" 2>/dev/null || echo /nonexistent)" -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) -print -quit 2>/dev/null || true)
+# On a reinstall while matugen-auto is active, the first image in the folder
+# is usually NOT the wallpaper on screen — seeding from it would leave
+# colors.toml describing the wrong image. Prefer the live wallpaper then.
+current_theme=$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null | tr '[:upper:] ' '[:lower:]-' || true)
+current_bg=$(readlink -f "$HOME/.local/state/omarchy/current/background" 2>/dev/null || true)
+if [[ $current_theme == matugen-auto && -n $current_bg && -f $current_bg ]]; then
+  seed_bg=$current_bg
+fi
 [[ -n $seed_bg ]] || fail "No background image found to seed colors from. Put a wallpaper in $THEME_DIR/backgrounds/ and rerun."
 say "Generating initial colors from $(basename "$seed_bg")"
 # Seed a commented settings file so the tuning knobs are discoverable. Only
@@ -188,9 +196,12 @@ systemctl --user enable --now omarchy-matugen.path
 
 # One-shot service run: proves the sync script starts in the systemd
 # environment (PATH, unit file, script location) rather than just in this
-# shell. It is only a launch check — while another theme is active the script
-# exits before touching matugen; `omarchy-matugen-sync --diagnose` covers the
-# full pipeline.
+# shell. While another theme is active the script exits before touching
+# matugen; `omarchy-matugen-sync --diagnose` covers the full pipeline.
+# Clearing the fingerprint first turns this run into a full regenerate +
+# omarchy-theme-refresh when matugen-auto is active, so a reinstall leaves
+# running apps on the palette of the wallpaper actually on screen.
+rm -f "$HOME/.local/state/omarchy/matugen-auto.last"
 systemctl --user start omarchy-matugen.service \
   || fail "omarchy-matugen.service failed its validation run. Inspect with: journalctl --user -u omarchy-matugen.service"
 # That validation run also reconciled the rotation timer against ROTATE.
