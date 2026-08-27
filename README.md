@@ -83,11 +83,22 @@ Uncomment a line to override a default:
 ```sh
 PREFER=darkness   # darkness, lightness, saturation, less-saturation, value, closest-to-fallback
 MODE=light        # dark or light
+ROTATE=30m        # wallpaper rotation: daily, or an interval like 30m / 2h
 ```
 
-The change takes effect on the next wallpaper switch. Both the installer and the sync process read these settings. The file is sourced as Bash, so treat it as trusted code. `MODE` and `PREFER` are validated after loading.
+The change takes effect on the next wallpaper switch. Both the installer and the sync process read these settings. The file is sourced as Bash, so treat it as trusted code. All settings are validated after loading.
 
 The installer never overwrites an existing settings file, and the uninstaller keeps it.
+
+### Wallpaper rotation
+
+Set `ROTATE` and the wallpaper advances by itself — a systemd user timer calls Omarchy's own `omarchy-theme-bg-next`, so you get the usual crossfade transition, and the color pipeline above follows automatically.
+
+- `ROTATE=daily` — a new wallpaper every morning (fires at midnight; a missed fire runs when the machine wakes up).
+- `ROTATE=30m`, `ROTATE=2h` — rotate continuously at that interval.
+- Unset (the default) — no rotation; the timer is disabled and its config removed.
+
+The setting is reconciled on every sync run, so after editing it, change the wallpaper once (SUPER+CTRL+SPACE) or rerun `./install.sh` to apply immediately — after that the rotation itself keeps the setting fresh. Rotation cycles the backgrounds of whatever theme is active, not just matugen-auto.
 
 If you customized the template in an earlier version, note that light mode used to require editing `mode = "dark"` in the template as well. The current template emits `mode = "{{mode}}"`, so `MODE` in the settings file is the only knob. The `--diagnose` command reports when a customized template disagrees with the settings.
 

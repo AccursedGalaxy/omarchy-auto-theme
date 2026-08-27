@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Wallpaper rotation** via a single `ROTATE` knob in
+  `~/.config/omarchy-auto-theme/settings`: `daily` for a new wallpaper every
+  morning (persistent across suspend), or an interval like `30m`/`2h` for
+  continuous rotation. A systemd user timer (`omarchy-bg-rotate.timer`) calls
+  Omarchy's own `omarchy-theme-bg-next`, so transitions and the color pipeline
+  come for free. The sync script reconciles the timer against the setting on
+  every run — edit the knob and it applies on the next wallpaper/theme change
+  (or an install rerun), with no separate command. Unsetting `ROTATE` tears
+  the timer back down. `--diagnose` reports rotation state; uninstall removes
+  the units and the generated schedule.
+
 ## v1.1.0 — 2026-08-23
 
 Ease-of-use pass: the second-day tasks (own wallpapers, light mode, tuning)

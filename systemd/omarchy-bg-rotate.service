@@ -1,0 +1,6 @@
+[Unit]
+Description=Rotate the omarchy wallpaper (omarchy-auto-theme ROTATE setting)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/omarchy-matugen-sync --rotate

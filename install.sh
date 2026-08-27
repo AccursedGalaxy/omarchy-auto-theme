@@ -141,16 +141,22 @@ if [[ ! -e $SETTINGS_FILE ]]; then
 
 # Color scheme: dark or light.
 #MODE=dark
+
+# Wallpaper rotation. Unset = off. "daily" gives a new wallpaper every
+# morning; an interval like 30m or 2h rotates continuously. Takes effect on
+# the next wallpaper/theme change (or rerun install.sh).
+#ROTATE=30m
 EOF
   say "Created settings file: $SETTINGS_FILE"
 fi
 
 # Honor the same user settings the sync script reads (a trusted bash fragment).
-PREFER=saturation MODE=dark
+PREFER=saturation MODE=dark ROTATE=
 # shellcheck source=/dev/null
 [[ -f $SETTINGS_FILE ]] && source "$SETTINGS_FILE"
 case $MODE in dark|light) ;; *) fail "invalid MODE '$MODE' in ~/.config/omarchy-auto-theme/settings (dark|light)" ;; esac
 [[ $PREFER =~ ^[a-zA-Z0-9_-]+$ ]] || fail "invalid PREFER '$PREFER' in ~/.config/omarchy-auto-theme/settings"
+[[ $ROTATE =~ ^(daily|[1-9][0-9]*[mh])?$ ]] || fail "invalid ROTATE '$ROTATE' in ~/.config/omarchy-auto-theme/settings (unset, daily, or an interval like 30m or 2h)"
 # A leftover colors.toml from an earlier install would make a broken config
 # look like success — require the output to be new or freshly rewritten.
 colors_before=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missing)
@@ -162,7 +168,9 @@ colors_after=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missin
 # --- systemd watcher -------------------------------------------------------
 say "Installing systemd user units"
 mkdir -p "$HOME/.config/systemd/user"
-cp "$REPO_DIR/systemd/omarchy-matugen.path" "$REPO_DIR/systemd/omarchy-matugen.service" "$HOME/.config/systemd/user/"
+cp "$REPO_DIR/systemd/omarchy-matugen.path" "$REPO_DIR/systemd/omarchy-matugen.service" \
+   "$REPO_DIR/systemd/omarchy-bg-rotate.timer" "$REPO_DIR/systemd/omarchy-bg-rotate.service" \
+   "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
 systemctl --user enable --now omarchy-matugen.path
 
@@ -173,6 +181,8 @@ systemctl --user enable --now omarchy-matugen.path
 # full pipeline.
 systemctl --user start omarchy-matugen.service \
   || fail "omarchy-matugen.service failed its validation run. Inspect with: journalctl --user -u omarchy-matugen.service"
+# That validation run also reconciled the rotation timer against ROTATE.
+[[ -n $ROTATE ]] && say "Wallpaper rotation enabled: $([[ $ROTATE == daily ]] && echo "a new wallpaper every morning" || echo "every $ROTATE")"
 
 say "Done. Activate with: omarchy theme set matugen-auto"
 say "Then change wallpapers with SUPER+CTRL+SPACE — colors follow automatically."

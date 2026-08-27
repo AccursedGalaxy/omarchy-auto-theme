@@ -38,6 +38,10 @@ echo "omarchy-theme-refresh" >>"$MOCK_LOG"
 [[ ${MOCK_REFRESH_FAIL:-} == 1 ]] && exit 1
 exit 0
 EOF
+cat >"$MOCKS/omarchy-theme-bg-next" <<'EOF'
+#!/bin/bash
+echo "omarchy-theme-bg-next" >>"$MOCK_LOG"
+EOF
 cat >"$MOCKS/systemctl" <<'EOF'
 #!/bin/bash
 echo "systemctl $*" >>"$MOCK_LOG"
@@ -320,6 +324,68 @@ check "missing dir fails" bash -c "! '$REPO_DIR/install.sh' --wallpapers '$HOME/
 mkdir -p "$HOME/empty"
 check "dir without images fails" bash -c "! '$REPO_DIR/install.sh' --wallpapers '$HOME/empty' >/dev/null 2>&1"
 check "unknown option fails" bash -c "! '$REPO_DIR/install.sh' --bogus >/dev/null 2>&1"
+
+# --- 12. Wallpaper rotation (ROTATE) ----------------------------------------
+echo "test: rotation units installed but timer stays off without ROTATE"
+fresh_home home-rotate
+"$REPO_DIR/install.sh" >/dev/null 2>&1
+SYNC="$HOME/.local/bin/omarchy-matugen-sync"
+DROPIN="$HOME/.config/systemd/user/omarchy-bg-rotate.timer.d/interval.conf"
+check "rotate timer unit installed" test -f "$HOME/.config/systemd/user/omarchy-bg-rotate.timer"
+check "rotate service unit installed" test -f "$HOME/.config/systemd/user/omarchy-bg-rotate.service"
+check "timer not enabled without ROTATE" bash -c "! grep -q 'enable --now omarchy-bg-rotate.timer' '$MOCK_LOG'"
+check "no interval drop-in without ROTATE" test ! -e "$DROPIN"
+
+echo "test: setting ROTATE reconciles the timer on the next sync"
+mkdir -p "$HOME/.config/omarchy-auto-theme"
+printf 'ROTATE=45m\n' >"$HOME/.config/omarchy-auto-theme/settings"
+: >"$MOCK_LOG"
+check "sync exits 0" "$SYNC"
+check "drop-in carries the interval" grep -q "OnUnitActiveSec=45m" "$DROPIN"
+check "interval rotation is not Persistent" grep -q "Persistent=false" "$DROPIN"
+check "timer enabled" grep -q "enable --now omarchy-bg-rotate.timer" "$MOCK_LOG"
+: >"$MOCK_LOG"
+check "second sync exits 0" "$SYNC"
+check "unchanged ROTATE: no re-enable (idempotent)" bash -c "! grep -q 'enable --now omarchy-bg-rotate.timer' '$MOCK_LOG'"
+
+echo "test: daily preset and interval changes rewrite the drop-in"
+printf 'ROTATE=daily\n' >"$HOME/.config/omarchy-auto-theme/settings"
+: >"$MOCK_LOG"
+check "sync exits 0" "$SYNC"
+check "drop-in switched to OnCalendar=daily" grep -q "OnCalendar=daily" "$DROPIN"
+check "daily rotation is Persistent" grep -q "Persistent=true" "$DROPIN"
+check "timer re-enabled after change" grep -q "enable --now omarchy-bg-rotate.timer" "$MOCK_LOG"
+
+echo "test: clearing ROTATE tears the timer down"
+: >"$HOME/.config/omarchy-auto-theme/settings"
+: >"$MOCK_LOG"
+check "sync exits 0" "$SYNC"
+check "timer disabled" grep -q "disable --now omarchy-bg-rotate.timer" "$MOCK_LOG"
+check "drop-in removed" test ! -e "$DROPIN"
+: >"$MOCK_LOG"
+check "already-off: sync exits 0" "$SYNC"
+check "already-off: no systemctl churn" bash -c "! grep -q omarchy-bg-rotate '$MOCK_LOG'"
+
+echo "test: --rotate calls omarchy-theme-bg-next"
+: >"$MOCK_LOG"
+check "--rotate exits 0" "$SYNC" --rotate
+check "bg-next invoked" grep -q "omarchy-theme-bg-next" "$MOCK_LOG"
+
+echo "test: invalid ROTATE is rejected"
+printf 'ROTATE=5x\n' >"$HOME/.config/omarchy-auto-theme/settings"
+check "invalid unit: sync exits 2" bash -c "'$SYNC'; [[ \$? -eq 2 ]]"
+check "invalid unit: installer refuses" bash -c "! '$REPO_DIR/install.sh' >/dev/null 2>&1"
+printf 'ROTATE=0m\n' >"$HOME/.config/omarchy-auto-theme/settings"
+check "zero interval: sync exits 2" bash -c "'$SYNC'; [[ \$? -eq 2 ]]"
+printf 'ROTATE=daily\n' >"$HOME/.config/omarchy-auto-theme/settings"
+check "daily preset: installer accepts" "$REPO_DIR/install.sh"
+
+echo "test: uninstall removes rotation units and generated drop-in"
+"$SYNC" >/dev/null 2>&1   # materialize the drop-in
+check "uninstaller exits 0" "$REPO_DIR/uninstall.sh"
+check "rotate timer disabled" grep -q "disable --now omarchy-bg-rotate.timer" "$MOCK_LOG"
+check "rotate units removed" bash -c "! ls '$HOME/.config/systemd/user/'omarchy-bg-rotate.* >/dev/null 2>&1"
+check "drop-in dir removed" test ! -e "$HOME/.config/systemd/user/omarchy-bg-rotate.timer.d"
 
 # ---------------------------------------------------------------------------
 echo

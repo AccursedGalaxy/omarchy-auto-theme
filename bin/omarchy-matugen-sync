@@ -20,13 +20,64 @@ CONFIG="$HOME/.config/matugen/omarchy-auto-theme.toml"
 # fragment sourced as-is; recognized variables:
 #   PREFER  matugen source-color preference (default: saturation)
 #   MODE    dark or light (default: dark)
+#   ROTATE  wallpaper rotation: unset = off, "daily", or an interval like 30m/2h
 SETTINGS="$HOME/.config/omarchy-auto-theme/settings"
 PREFER=saturation
 MODE=dark
+ROTATE=
 # shellcheck source=/dev/null
 [[ -f $SETTINGS ]] && source "$SETTINGS"
 case $MODE in dark|light) ;; *) echo "omarchy-matugen-sync: invalid MODE '$MODE' in $SETTINGS (dark|light)" >&2; exit 2 ;; esac
 [[ $PREFER =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "omarchy-matugen-sync: invalid PREFER '$PREFER' in $SETTINGS" >&2; exit 2; }
+[[ $ROTATE =~ ^(daily|[1-9][0-9]*[mh])?$ ]] || { echo "omarchy-matugen-sync: invalid ROTATE '$ROTATE' in $SETTINGS (unset, daily, or an interval like 30m or 2h)" >&2; exit 2; }
+
+# The timer's schedule is generated state owned by this script: the drop-in
+# below exists exactly when ROTATE is set, and its content mirrors the setting.
+# reconcile_rotation runs on every sync (and on the rotation fire itself, since
+# the wallpaper change re-triggers the path unit), so editing ROTATE takes
+# effect on the next wallpaper/theme change — no install rerun needed.
+ROTATE_DROPIN="$HOME/.config/systemd/user/omarchy-bg-rotate.timer.d/interval.conf"
+reconcile_rotation() {
+  local desired=
+  if [[ $ROTATE == daily ]]; then
+    # Persistent: a missed midnight fire (laptop asleep) runs on wake, so the
+    # "new wallpaper every morning" contract survives suspend.
+    desired="[Timer]
+OnCalendar=daily
+Persistent=true"
+  elif [[ -n $ROTATE ]]; then
+    # OnActiveSec covers the first fire after enabling; no Persistent so a
+    # wake after suspend doesn't force an immediate rotation.
+    desired="[Timer]
+OnActiveSec=$ROTATE
+OnUnitActiveSec=$ROTATE
+Persistent=false"
+  fi
+  if [[ -z $desired ]]; then
+    [[ -e $ROTATE_DROPIN ]] || return 0
+    systemctl --user disable --now omarchy-bg-rotate.timer 2>/dev/null || true
+    rm -f "$ROTATE_DROPIN"
+    rmdir "${ROTATE_DROPIN%/*}" 2>/dev/null || true
+    systemctl --user daemon-reload 2>/dev/null || true
+    return 0
+  fi
+  [[ $desired == "$(cat "$ROTATE_DROPIN" 2>/dev/null)" ]] \
+    && systemctl --user is-active --quiet omarchy-bg-rotate.timer && return 0
+  mkdir -p "${ROTATE_DROPIN%/*}"
+  printf '%s\n' "$desired" >"$ROTATE_DROPIN"
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user enable --now omarchy-bg-rotate.timer \
+    || echo "omarchy-matugen-sync: could not enable omarchy-bg-rotate.timer (missing unit? rerun install.sh)" >&2
+}
+
+# --rotate: timer-fired entry point — advance to the next wallpaper. Omarchy's
+# own script drives the awww transition and rewrites current/, which trips the
+# path unit and brings the colors along.
+if [[ ${1:-} == --rotate ]]; then
+  command -v omarchy-theme-bg-next >/dev/null \
+    || { echo "omarchy-matugen-sync: omarchy-theme-bg-next not found on PATH" >&2; exit 1; }
+  exec omarchy-theme-bg-next
+fi
 
 diagnose() {
   local ok=0
@@ -48,12 +99,22 @@ diagnose() {
   # catch the half-configured state where it disagrees with settings.
   check "settings MODE matches template mode" \
     grep -qE "^mode = \"(\\{\\{mode\\}\\}|$MODE)\"" "$HOME/.config/matugen/templates/omarchy-quattro-colors.toml"
+  # ROTATE applies on the next sync run: an inactive timer here means the
+  # setting hasn't been picked up yet — change the wallpaper once or rerun
+  # install.sh.
+  if [[ -n $ROTATE ]]; then
+    check "rotation timer active (omarchy-bg-rotate.timer)" systemctl --user is-active omarchy-bg-rotate.timer
+  fi
   echo "active theme: $(cat "$STATE_DIR/current/theme.name" 2>/dev/null || echo '(none)')"
   echo "matugen: $(matugen --version 2>/dev/null || echo '(not found)')"
-  echo "settings: mode=$MODE prefer=$PREFER ($([[ -f $SETTINGS ]] && echo "$SETTINGS" || echo built-in defaults))"
+  echo "settings: mode=$MODE prefer=$PREFER rotate=${ROTATE:-off} ($([[ -f $SETTINGS ]] && echo "$SETTINGS" || echo built-in defaults))"
   exit "$ok"
 }
 [[ ${1:-} == --diagnose ]] && diagnose
+
+# Before the theme guard: rotation follows the ROTATE knob alone, and keeps
+# working (and keeps being reconfigurable) even while another theme is active.
+reconcile_rotation
 
 # Only act while the adaptive theme is active.
 theme_name=$(cat "$STATE_DIR/current/theme.name" 2>/dev/null || true)
