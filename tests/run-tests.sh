@@ -294,7 +294,12 @@ check "seeded settings are all comments (defaults unchanged)" \
 check "matugen still uses built-in defaults" grep -q -- "--mode dark --prefer saturation" "$MOCK_LOG"
 printf 'MODE=light\n' >"$HOME/.config/omarchy-auto-theme/settings"
 check "reinstall exits 0" "$REPO_DIR/install.sh"
-check "existing settings file untouched" bash -c "[[ \$(cat '$HOME/.config/omarchy-auto-theme/settings') == 'MODE=light' ]]"
+check "existing settings values untouched" bash -c "head -n1 '$HOME/.config/omarchy-auto-theme/settings' | grep -qx 'MODE=light'"
+check "pre-ROTATE file gets the commented ROTATE doc appended" grep -q '^#ROTATE=30m' "$HOME/.config/omarchy-auto-theme/settings"
+check "appended block sets no values" bash -c "! grep -qv '^#\|^$\|^MODE=light\$' '$HOME/.config/omarchy-auto-theme/settings'"
+size_before=$(wc -c <"$HOME/.config/omarchy-auto-theme/settings")
+check "third install exits 0" "$REPO_DIR/install.sh"
+check "ROTATE block appended only once" bash -c "[[ \$(wc -c <'$HOME/.config/omarchy-auto-theme/settings') -eq $size_before ]]"
 
 # --- 11. --wallpapers flag ---------------------------------------------------
 echo "test: install --wallpapers links the user folder"

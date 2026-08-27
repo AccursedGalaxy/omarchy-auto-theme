@@ -148,6 +148,18 @@ if [[ ! -e $SETTINGS_FILE ]]; then
 #ROTATE=30m
 EOF
   say "Created settings file: $SETTINGS_FILE"
+elif ! grep -q ROTATE "$SETTINGS_FILE"; then
+  # Upgrade path: a settings file from before the ROTATE knob existed. We
+  # never rewrite user settings, but appending the commented doc block keeps
+  # new knobs discoverable without one.
+  cat >>"$SETTINGS_FILE" <<'EOF'
+
+# Wallpaper rotation. Unset = off. "daily" gives a new wallpaper every
+# morning; an interval like 30m or 2h rotates continuously. Takes effect on
+# the next wallpaper/theme change (or rerun install.sh).
+#ROTATE=30m
+EOF
+  say "Added the new ROTATE knob (commented) to $SETTINGS_FILE"
 fi
 
 # Honor the same user settings the sync script reads (a trusted bash fragment).
