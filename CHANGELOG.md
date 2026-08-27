@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+- **`--wallpapers` no longer breaks background cycling.** v1.1.0 symlinked the
+  whole folder, but `omarchy-theme-bg-set` stores the current background
+  through `realpath` while `omarchy-theme-bg-next` compares unresolved paths —
+  behind a dir symlink they never match, so every "next" (SUPER+CTRL+SPACE and
+  the new rotation timer alike) pinned to the alphabetically first image. The
+  installer now hardlinks the images into a real managed directory (marker
+  file records the source folder), migrates the old symlink automatically, and
+  a plain `./install.sh` rerun refreshes the collection from the remembered
+  folder.
+
 ### Added
 - **Wallpaper rotation** via a single `ROTATE` knob in
   `~/.config/omarchy-auto-theme/settings`: `daily` for a new wallpaper every

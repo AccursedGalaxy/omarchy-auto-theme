@@ -302,26 +302,45 @@ check "third install exits 0" "$REPO_DIR/install.sh"
 check "ROTATE block appended only once" bash -c "[[ \$(wc -c <'$HOME/.config/omarchy-auto-theme/settings') -eq $size_before ]]"
 
 # --- 11. --wallpapers flag ---------------------------------------------------
-echo "test: install --wallpapers links the user folder"
+echo "test: install --wallpapers hardlinks the folder into a managed dir"
 fresh_home home-wallpapers
 mkdir -p "$HOME/Pictures/Walls"
 printf 'img' >"$HOME/Pictures/Walls/mine.png"
 check "installer exits 0" "$REPO_DIR/install.sh" --wallpapers "$HOME/Pictures/Walls"
 USER_BGS="$HOME/.config/omarchy/backgrounds/matugen-auto"
-check "background dir is a symlink to the folder" \
-  bash -c "[[ \$(readlink -f '$USER_BGS') == \$(readlink -f '$HOME/Pictures/Walls') ]]"
+check "background dir is a real dir (not a symlink)" \
+  bash -c "[[ -d '$USER_BGS' && ! -L '$USER_BGS' ]]"
+check "image hardlinked in" bash -c "[[ '$USER_BGS/mine.png' -ef '$HOME/Pictures/Walls/mine.png' ]]"
+check "marker records the source folder" \
+  bash -c "[[ \$(cat '$USER_BGS/.omarchy-auto-theme-source') == '$HOME/Pictures/Walls' ]]"
 check "no starter backgrounds seeded" \
   bash -c "! find '$HOME/.config/omarchy/themes/matugen-auto/backgrounds' -type f 2>/dev/null | grep -q ."
-check "initial colors generated from the user folder" grep -q "matugen image $HOME/Pictures/Walls/" "$MOCK_LOG"
+check "initial colors generated from the managed collection" \
+  grep -q "matugen image $USER_BGS/mine.png" "$MOCK_LOG"
 
-echo "test: --wallpapers backs up an existing regular background dir"
+echo "test: plain rerun refreshes the managed dir from the recorded source"
+printf 'img2' >"$HOME/Pictures/Walls/added-later.png"
+rm "$HOME/Pictures/Walls/mine.png"
+check "rerun without the flag exits 0" "$REPO_DIR/install.sh"
+check "new source image appears" test -f "$USER_BGS/added-later.png"
+check "removed source image disappears" test ! -e "$USER_BGS/mine.png"
+check "no backup litter from refreshing our own dir" test ! -e "$USER_BGS.bak"
+
+echo "test: --wallpapers migrates the v1.1 dir symlink and backs up user dirs"
 fresh_home home-wallpapers-bak
 mkdir -p "$HOME/Pictures/Walls" "$HOME/.config/omarchy/backgrounds/matugen-auto"
 printf 'img' >"$HOME/Pictures/Walls/mine.jpg"
 printf 'old' >"$HOME/.config/omarchy/backgrounds/matugen-auto/old.png"
 check "installer exits 0" "$REPO_DIR/install.sh" --wallpapers "$HOME/Pictures/Walls"
 check "old dir backed up" test -f "$HOME/.config/omarchy/backgrounds/matugen-auto.bak/old.png"
-check "symlink in place" test -L "$HOME/.config/omarchy/backgrounds/matugen-auto"
+check "managed dir in place with the image" \
+  bash -c "[[ '$HOME/.config/omarchy/backgrounds/matugen-auto/mine.jpg' -ef '$HOME/Pictures/Walls/mine.jpg' ]]"
+rm -rf "$HOME/.config/omarchy/backgrounds/matugen-auto"
+ln -s "$HOME/Pictures/Walls" "$HOME/.config/omarchy/backgrounds/matugen-auto"
+check "reinstall over v1.1 symlink exits 0" "$REPO_DIR/install.sh" --wallpapers "$HOME/Pictures/Walls"
+check "symlink replaced by a real dir" \
+  bash -c "[[ -d '$HOME/.config/omarchy/backgrounds/matugen-auto' && ! -L '$HOME/.config/omarchy/backgrounds/matugen-auto' ]]"
+check "source folder itself untouched" test -f "$HOME/Pictures/Walls/mine.jpg"
 
 echo "test: --wallpapers rejects bad input"
 fresh_home home-wallpapers-bad
@@ -351,7 +370,8 @@ ln -sf "$HOME/other-theme-bg.png" "$HOME/.local/state/omarchy/current/background
 check "reinstall exits 0 under another theme" "$REPO_DIR/install.sh"
 check "inactive theme: another theme's wallpaper is not used as seed" \
   bash -c "! grep -q 'matugen image $HOME/other-theme-bg.png' '$MOCK_LOG'"
-check "inactive theme: seed comes from the wallpaper folder" grep -q "matugen image $HOME/Pictures/Walls/" "$MOCK_LOG"
+check "inactive theme: seed comes from the managed collection" \
+  grep -q "matugen image $HOME/.config/omarchy/backgrounds/matugen-auto/" "$MOCK_LOG"
 
 # --- 12. Wallpaper rotation (ROTATE) ----------------------------------------
 echo "test: rotation units installed but timer stays off without ROTATE"

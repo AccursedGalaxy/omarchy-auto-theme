@@ -91,8 +91,20 @@ mkdir -p "$THEME_DIR/backgrounds"
 
 user_bgs="$HOME/.config/omarchy/backgrounds/matugen-auto"
 
-# --wallpapers: link the user's own folder as the theme's background
-# collection. An existing regular dir there is backed up, never merged into.
+# --wallpapers: adopt the user's own folder as the theme's background
+# collection. The images are HARDLINKED (copied across filesystems) into a
+# real managed dir — NOT a dir symlink: omarchy-theme-bg-set stores the
+# current background through realpath while omarchy-theme-bg-next compares
+# unresolved find paths, so behind a symlink the two never match and every
+# "next" (hotkey and rotation alike) pins to the first image. The marker file
+# records the source folder so later installs refresh the collection.
+MANAGED_MARKER=".omarchy-auto-theme-source"
+# No flag, but a previous --wallpapers install recorded its source: refresh
+# from it so newly added images are picked up by a plain rerun.
+if [[ -z $WALLPAPERS && -f $user_bgs/$MANAGED_MARKER ]]; then
+  recorded_src=$(cat "$user_bgs/$MANAGED_MARKER")
+  [[ -d $recorded_src ]] && WALLPAPERS=$recorded_src
+fi
 if [[ -n $WALLPAPERS ]]; then
   wallpapers_resolved=$(readlink -f "$WALLPAPERS" 2>/dev/null || true)
   [[ -n $wallpapers_resolved && -d $wallpapers_resolved ]] || fail "--wallpapers: not a directory: $WALLPAPERS"
@@ -100,7 +112,10 @@ if [[ -n $WALLPAPERS ]]; then
   first_img=$(find "$WALLPAPERS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) -print -quit 2>/dev/null || true)
   [[ -n $first_img ]] || fail "--wallpapers: no images (jpg/png/jpeg/webp) found in $WALLPAPERS"
   mkdir -p "$HOME/.config/omarchy/backgrounds"
-  if [[ -d $user_bgs && ! -L $user_bgs ]]; then
+  # Migrate the dir symlink an earlier version created.
+  [[ -L $user_bgs ]] && rm "$user_bgs"
+  # A real dir we did not create is user data: back it up, never merge into it.
+  if [[ -d $user_bgs && ! -f $user_bgs/$MANAGED_MARKER ]]; then
     backup="$user_bgs.bak"
     n=0
     while [[ -e $backup ]]; do
@@ -109,8 +124,15 @@ if [[ -n $WALLPAPERS ]]; then
     mv "$user_bgs" "$backup"
     warn "Existing $(basename "$user_bgs") background dir moved to $(basename "$backup")"
   fi
-  ln -sfn "$WALLPAPERS" "$user_bgs"
-  say "Linked wallpaper folder: $WALLPAPERS"
+  # Refresh the managed dir to mirror the source folder exactly: stale
+  # entries removed, current images hardlinked in (copy as fallback).
+  mkdir -p "$user_bgs"
+  find "$user_bgs" -maxdepth 1 -type f ! -name "$MANAGED_MARKER" -delete
+  printf '%s\n' "$WALLPAPERS" >"$user_bgs/$MANAGED_MARKER"
+  while IFS= read -r -d '' img; do
+    ln -f "$img" "$user_bgs/$(basename "$img")" 2>/dev/null || cp -f "$img" "$user_bgs/$(basename "$img")"
+  done < <(find "$WALLPAPERS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.jpeg' -o -iname '*.webp' \) -print0 2>/dev/null)
+  say "Wallpaper collection synced from: $WALLPAPERS"
 fi
 # -print -quit: find stops itself at the first hit — no pipe, no pipefail/
 # SIGPIPE hazard that a `| grep -q .` construction would carry.

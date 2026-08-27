@@ -40,9 +40,11 @@ Pass your wallpaper folder to the installer:
 ./install.sh --wallpapers ~/Pictures/Wallpapers
 ```
 
-This links the folder as the theme's background collection. Without the flag, the installer seeds a few starter backgrounds instead. Rerunning the installer with the flag later switches to your folder; any existing background directory is backed up first.
+This hardlinks the folder's images into the theme's background collection (a plain copy on a different filesystem) and remembers the folder. Without the flag, the installer seeds a few starter backgrounds instead. Any existing background directory is backed up first.
 
-Omarchy takes a snapshot of available backgrounds when a theme is applied. If you add wallpapers later, run `omarchy theme set matugen-auto` again to show them in the switcher. Color generation always uses the current wallpaper.
+The images are linked rather than the directory itself: Omarchy's background cycling compares unresolved paths against a `realpath`-resolved link, so behind a directory symlink every "next wallpaper" resolves to the same first image.
+
+If you add or remove wallpapers later, rerun `./install.sh` — it refreshes the collection from the remembered folder. Omarchy also snapshots backgrounds when a theme is applied, so run `omarchy theme set matugen-auto` again to show new ones in the switcher. Color generation always uses the current wallpaper.
 
 ## How it works
 
