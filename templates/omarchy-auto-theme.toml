@@ -1,5 +1,5 @@
 # Matugen config owned by omarchy-auto-theme.
-# Installed to ~/.config/matugen/omarchy-auto-theme.toml — invoked by
+# Installed to ~/.config/matugen/omarchy-auto-theme.toml and invoked by
 # omarchy-matugen-sync. Add your own [templates.*] blocks below to render
 # extra apps from the same palette; the installer and uninstaller leave a
 # modified copy of this file alone.
@@ -16,7 +16,7 @@ output_path = '~/.config/omarchy/themes/matugen-auto/colors.toml'
 # to your tmux.conf. No post_hook: the omarchy-theme-set-tmux shim (extras)
 # re-sources the generated file into the running server on every theme
 # change. If you skip the shim, reload with a post_hook of
-# `tmux source-file ...` — but never hook `pkill` at shells here: a signal
+# `tmux source-file ...`. Never hook `pkill` at shells here: a signal
 # broadcast can kill processes that have no handler installed (a zsh parked
 # on `tmux attach` in .zshrc takes its whole terminal window down with it).
 #

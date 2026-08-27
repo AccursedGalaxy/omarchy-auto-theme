@@ -65,7 +65,7 @@ fresh_home() { # name -> sets HOME and MOCK_LOG
   export HOME="$WORK/$1"
   mkdir -p "$HOME/.local/bin"
   # The sync script pins its own PATH with ~/.local/bin first, which would
-  # bypass $MOCKS — so the mocks must also live inside the test HOME.
+  # bypass $MOCKS, so the mocks must also live inside the test HOME.
   ln -sf "$MOCKS"/* "$HOME/.local/bin/"
   export MOCK_LOG="$HOME/mock.log"
   : >"$MOCK_LOG"
@@ -235,7 +235,7 @@ touch -d '2001-01-01' "$STATE/wall.png"   # same path, new mtime = edited in pla
 check "in-place edit: exits 0" "$SYNC"
 check "in-place edit: regenerates (mtime fingerprint)" grep -q "matugen image" "$MOCK_LOG"
 
-# Same path, same size, same second — only the nanoseconds differ.
+# Same path, same size, same second; only the nanoseconds differ.
 touch -d '2001-01-02 00:00:00.100000000' "$STATE/wall.png"
 "$SYNC" >/dev/null 2>&1
 touch -d '2001-01-02 00:00:00.200000000' "$STATE/wall.png"

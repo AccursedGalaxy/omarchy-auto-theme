@@ -18,14 +18,14 @@ remove_owned() {
     if cmp -s "$src" "$dst"; then
       rm -f "$dst"
     else
-      echo "Kept $dst (you modified it — delete manually if unwanted)"
+      echo "Kept $dst (you modified it; delete manually if unwanted)"
     fi
   fi
   if [[ -f $dst.new ]]; then
     if cmp -s "$src" "$dst.new"; then
       rm -f "$dst.new"
     else
-      echo "Kept $dst.new (not identical to the distributed version — delete manually if unwanted)"
+      echo "Kept $dst.new (not identical to the distributed version; delete manually if unwanted)"
     fi
   fi
 }
@@ -52,14 +52,14 @@ fi
 remove_owned "$MATUGEN_DIR/omarchy-auto-theme.toml" "$REPO_DIR/templates/omarchy-auto-theme.toml"
 remove_owned "$MATUGEN_DIR/templates/omarchy-quattro-colors.toml" "$REPO_DIR/templates/omarchy-quattro-colors.toml"
 
-# quattro.toml is only ours if it still carries the v1.0.0 header — and even
+# quattro.toml is only ours if it still carries the v1.0.0 header, and even
 # then it may hold user-added template blocks, so never delete it silently.
 if [[ -f $MATUGEN_DIR/quattro.toml ]] \
    && [[ $(head -n1 "$MATUGEN_DIR/quattro.toml") == "$LEGACY_MARKER" ]]; then
-  echo "Kept $MATUGEN_DIR/quattro.toml (installed by v1.0.0 — delete manually if you never customized it)"
+  echo "Kept $MATUGEN_DIR/quattro.toml (installed by v1.0.0; delete manually if you never customized it)"
 fi
 
-# Managed wallpaper collection: remove only the entries our manifest lists —
+# Managed wallpaper collection: remove only the entries our manifest lists;
 # files the user dropped into the dir by hand stay.
 user_bgs="$HOME/.config/omarchy/backgrounds/matugen-auto"
 if [[ -f $user_bgs/.omarchy-auto-theme-source ]]; then
@@ -68,11 +68,11 @@ if [[ -f $user_bgs/.omarchy-auto-theme-source ]]; then
   done < <(tail -n +2 "$user_bgs/.omarchy-auto-theme-source")
   rm -f "$user_bgs/.omarchy-auto-theme-source"
   rmdir "$user_bgs" 2>/dev/null \
-    || echo "Kept $user_bgs (files you added — delete manually if unwanted)"
+    || echo "Kept $user_bgs (files you added; delete manually if unwanted)"
 fi
 
 # The settings file is user-created tuning, never installed by us.
 [[ -f $HOME/.config/omarchy-auto-theme/settings ]] \
-  && echo "Kept ~/.config/omarchy-auto-theme/settings (your tuning — delete manually if unwanted)"
+  && echo "Kept ~/.config/omarchy-auto-theme/settings (your tuning; delete manually if unwanted)"
 
 echo "omarchy-auto-theme removed. Switch themes with: omarchy theme set <name>"

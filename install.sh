@@ -1,5 +1,5 @@
 #!/bin/bash
-# omarchy-auto-theme installer — wallpaper-adaptive theming for Omarchy >= 4.0 (Quattro).
+# omarchy-auto-theme installer: wallpaper-adaptive theming for Omarchy >= 4.0 (Quattro).
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -86,7 +86,7 @@ if [[ -f $MATUGEN_DIR/quattro.toml ]]; then
     done
     mv "$MATUGEN_DIR/quattro.toml" "$backup"
     warn "This project now uses its own config: $CONFIG"
-    warn "Your old quattro.toml was moved to $(basename "$backup") — if you added custom [templates.*] blocks, copy them into the new config."
+    warn "Your old quattro.toml was moved to $(basename "$backup"). If you added custom [templates.*] blocks, copy them into the new config."
   else
     warn "quattro.toml in ~/.config/matugen is no longer used by this project and was left untouched."
   fi
@@ -103,17 +103,15 @@ mkdir -p "$THEME_DIR/backgrounds"
 
 user_bgs="$HOME/.config/omarchy/backgrounds/matugen-auto"
 
-# --wallpapers: adopt the user's own folder as the theme's background
-# collection. The images are HARDLINKED (copied across filesystems) into a
-# real managed dir — NOT a dir symlink: omarchy-theme-bg-set stores the
-# current background through realpath while omarchy-theme-bg-next compares
-# unresolved find paths, so behind a symlink the two never match and every
-# "next" (hotkey and rotation alike) pins to the first image.
-#
+# --wallpapers: adopt the user's folder as the background collection. Images
+# are hardlinked (copied across filesystems) into a real managed dir, never a
+# dir symlink: omarchy-theme-bg-set stores the background through realpath
+# while omarchy-theme-bg-next compares unresolved paths, so behind a symlink
+# every "next" pins to the first image.
 # The marker file is a manifest: line 1 is the source folder, the rest are
-# the basenames this installer linked. Refreshes only ever touch listed
-# names. This dir is also Omarchy's documented drop-zone for user
-# backgrounds, and files the user put here by hand must never be deleted.
+# the basenames we linked. Refreshes touch only listed names. This dir is
+# also Omarchy's drop-zone for user backgrounds; hand-added files must never
+# be deleted.
 MANAGED_MARKER=".omarchy-auto-theme-source"
 img_find() { # dir [find-action...]
   local dir=$1
@@ -124,7 +122,7 @@ adopted=""
 if [[ -z $WALLPAPERS ]]; then
   if [[ -L $user_bgs ]]; then
     # v1.1.0 linked the whole dir; adopt the target so a plain rerun still
-    # migrates it — the bg-next fix must reach flagless upgraders.
+    # migrates it (the bg-next fix must reach flagless upgraders).
     WALLPAPERS=$(readlink -f "$user_bgs" 2>/dev/null || true)
     adopted=1
   elif [[ -f $user_bgs/$MANAGED_MARKER ]]; then
@@ -147,7 +145,7 @@ if [[ -n $WALLPAPERS ]]; then
     # Only an explicit flag is allowed to abort; a remembered source that
     # went bad must not break an otherwise-routine reinstall.
     [[ -z $adopted ]] && fail "--wallpapers: $src_err"
-    warn "Wallpaper collection not refreshed ($src_err) — keeping the current one."
+    warn "Wallpaper collection not refreshed ($src_err); keeping the current one."
     WALLPAPERS=""
   else
     WALLPAPERS=$src
@@ -197,8 +195,8 @@ if [[ -n $WALLPAPERS ]]; then
   } >"$user_bgs/$MANAGED_MARKER"
   say "Wallpaper collection synced from: $WALLPAPERS"
 fi
-# -print -quit: find stops itself at the first hit — no pipe, no pipefail/
-# SIGPIPE hazard that a `| grep -q .` construction would carry.
+# -print -quit: find stops at the first hit. No pipe, so none of the
+# pipefail/SIGPIPE hazard a `| grep -q .` construction would carry.
 existing_bg=$(
   img_find "$THEME_DIR/backgrounds" -print -quit
   img_find "$user_bgs" -print -quit
@@ -213,7 +211,7 @@ fi
 seed_bg=$(img_find "$THEME_DIR/backgrounds" -print -quit)
 [[ -n $seed_bg ]] || seed_bg=$(img_find "$user_bgs" -print -quit)
 # On a reinstall while matugen-auto is active, the first image in the folder
-# is usually NOT the wallpaper on screen — seeding from it would leave
+# is usually not the wallpaper on screen, and seeding from it would leave
 # colors.toml describing the wrong image. Prefer the live wallpaper then.
 current_theme=$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null | tr '[:upper:] ' '[:lower:]-' || true)
 current_bg=$(readlink -f "$HOME/.local/state/omarchy/current/background" 2>/dev/null || true)
@@ -223,7 +221,7 @@ fi
 [[ -n $seed_bg ]] || fail "No background image found to seed colors from. Put a wallpaper in $THEME_DIR/backgrounds/ and rerun."
 say "Generating initial colors from $(basename "$seed_bg")"
 # Seed a commented settings file so the tuning knobs are discoverable. Only
-# ever created when absent — an existing file is the user's, never touched.
+# created when absent; an existing file is the user's, never touched.
 SETTINGS_FILE="$HOME/.config/omarchy-auto-theme/settings"
 if [[ ! -e $SETTINGS_FILE ]]; then
   mkdir -p "${SETTINGS_FILE%/*}"
@@ -246,9 +244,9 @@ if [[ ! -e $SETTINGS_FILE ]]; then
 EOF
   say "Created settings file: $SETTINGS_FILE"
 elif ! grep -q '^#\?ROTATE=' "$SETTINGS_FILE"; then
-  # Upgrade path: a settings file from before the ROTATE knob existed. We
-  # never rewrite user settings, but appending the commented doc block keeps
-  # new knobs discoverable without one.
+  # Settings file from before the ROTATE knob existed. We never rewrite user
+  # settings, but appending the commented doc block keeps the knob
+  # discoverable.
   cat >>"$SETTINGS_FILE" <<'EOF'
 
 # Wallpaper rotation. Unset = off. "daily" gives a new wallpaper every
@@ -267,7 +265,7 @@ case $MODE in dark | light) ;; *) fail "invalid MODE '$MODE' in ~/.config/omarch
 [[ $PREFER =~ ^[a-zA-Z0-9_-]+$ ]] || fail "invalid PREFER '$PREFER' in ~/.config/omarchy-auto-theme/settings"
 [[ $ROTATE =~ ^(daily|[1-9][0-9]*[mh])?$ ]] || fail "invalid ROTATE '$ROTATE' in ~/.config/omarchy-auto-theme/settings (unset, daily, or an interval like 30m or 2h)"
 # A leftover colors.toml from an earlier install would make a broken config
-# look like success — require the output to be new or freshly rewritten.
+# look like success: require the output to be new or freshly rewritten.
 colors_before=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missing)
 matugen image "$seed_bg" --config "$CONFIG" --mode "$MODE" --prefer "$PREFER"
 colors_after=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missing)
@@ -297,7 +295,7 @@ systemctl --user start omarchy-matugen.service ||
 [[ -n $ROTATE ]] && say "Wallpaper rotation configured: $([[ $ROTATE == daily ]] && echo "a new wallpaper each day (midnight, or on wake)" || echo "every $ROTATE")"
 
 say "Done. Activate with: omarchy theme set matugen-auto"
-say "Then change wallpapers with SUPER+CTRL+SPACE — colors follow automatically."
+say "Then change wallpapers with SUPER+CTRL+SPACE. Colors follow automatically."
 if [[ -z $WALLPAPERS ]]; then
   warn "To use your own wallpaper folder: ./install.sh --wallpapers ~/Pictures/Wallpapers"
 fi

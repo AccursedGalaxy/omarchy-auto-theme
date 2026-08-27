@@ -15,7 +15,7 @@ LAST_FILE="$STATE_DIR/matugen-auto.last"
 THEME_DIR="$HOME/.config/omarchy/themes/matugen-auto"
 CONFIG="$HOME/.config/matugen/omarchy-auto-theme.toml"
 
-# User tuning lives in the settings file, not in this script — installs and
+# User tuning lives in the settings file, not in this script; installs and
 # upgrades overwrite this file unconditionally. The file is a trusted bash
 # fragment sourced as-is; recognized variables:
 #   PREFER  matugen source-color preference (default: saturation)
@@ -35,7 +35,7 @@ case $MODE in dark|light) ;; *) echo "omarchy-matugen-sync: invalid MODE '$MODE'
 # below exists exactly when ROTATE is set, and its content mirrors the setting.
 # reconcile_rotation runs on every sync (and on the rotation fire itself, since
 # the wallpaper change re-triggers the path unit), so editing ROTATE takes
-# effect on the next wallpaper/theme change — no install rerun needed.
+# effect on the next wallpaper/theme change without an install rerun.
 ROTATE_DROPIN="$HOME/.config/systemd/user/omarchy-bg-rotate.timer.d/interval.conf"
 reconcile_rotation() {
   # The leading empty assignments reset the base unit's placeholder schedule
@@ -80,7 +80,7 @@ Persistent=false"
     || echo "omarchy-matugen-sync: could not enable omarchy-bg-rotate.timer (missing unit? rerun install.sh)" >&2
 }
 
-# --rotate: timer-fired entry point — advance to the next wallpaper. Omarchy's
+# --rotate: timer-fired entry point: advance to the next wallpaper. Omarchy's
 # own script drives the awww transition and rewrites current/, which trips the
 # path unit and brings the colors along.
 if [[ ${1:-} == --rotate ]]; then
@@ -105,12 +105,12 @@ diagnose() {
   check "current wallpaper resolves"            test -f "$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || echo /nonexistent)"
   check "watcher unit active (omarchy-matugen.path)" systemctl --user is-active omarchy-matugen.path
   # The distributed template emits mode = "{{mode}}", which always follows the
-  # settings MODE. A customized template may hardcode a literal mode instead —
+  # settings MODE. A customized template may hardcode a literal mode instead;
   # catch the half-configured state where it disagrees with settings.
   check "settings MODE matches template mode" \
     grep -qE "^mode = \"(\\{\\{mode\\}\\}|$MODE)\"" "$HOME/.config/matugen/templates/omarchy-quattro-colors.toml"
   # ROTATE applies on the next sync run: an inactive timer here means the
-  # setting hasn't been picked up yet — change the wallpaper once or rerun
+  # setting hasn't been picked up yet: change the wallpaper once or rerun
   # install.sh.
   if [[ -n $ROTATE ]]; then
     check "rotation timer active (omarchy-bg-rotate.timer)" systemctl --user is-active omarchy-bg-rotate.timer
@@ -124,7 +124,7 @@ diagnose() {
 
 # Before the theme guard: rotation follows the ROTATE knob alone, and keeps
 # working (and keeps being reconfigurable) even while another theme is active.
-# Rotation is auxiliary — a failure here must never stop the color sync.
+# Rotation is auxiliary: a failure here must never stop the color sync.
 reconcile_rotation \
   || echo "omarchy-matugen-sync: rotation reconcile failed (colors unaffected)" >&2
 
@@ -137,13 +137,13 @@ bg=$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || true)
 [[ -n $bg && -f $bg ]] || exit 0
 
 # Idempotency guard: theme refresh rewrites current/ without changing the
-# wallpaper, which re-triggers the path unit — bail unless the image changed.
+# wallpaper, which re-triggers the path unit; bail unless the image changed.
 # Fingerprint is path + size + nanosecond mtime, so an image edited or
 # replaced in place still counts as a change even within the same second.
 fingerprint="$bg $(stat -c '%s %.Y' "$bg" 2>/dev/null || true)"
 [[ $fingerprint == "$(cat "$LAST_FILE" 2>/dev/null || true)" ]] && exit 0
 
-[[ -s $CONFIG ]] || { echo "omarchy-matugen-sync: missing $CONFIG — rerun install.sh" >&2; exit 1; }
+[[ -s $CONFIG ]] || { echo "omarchy-matugen-sync: missing $CONFIG; rerun install.sh" >&2; exit 1; }
 matugen image "$bg" --config "$CONFIG" --mode "$MODE" --prefer "$PREFER"
 
 # Re-render every omarchy template (shell, neovim, terminal OSC, ...) from the

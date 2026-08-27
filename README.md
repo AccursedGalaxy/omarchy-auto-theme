@@ -40,11 +40,11 @@ Pass your wallpaper folder to the installer:
 ./install.sh --wallpapers ~/Pictures/Wallpapers
 ```
 
-This hardlinks the folder's images into the theme's background collection (a plain copy on a different filesystem) and remembers the folder. Without the flag, the installer seeds a few starter backgrounds instead. Any existing background directory is backed up first.
+This hardlinks the folder's images into the theme's background collection (a plain copy across filesystems) and remembers the folder. Without the flag, the installer seeds a few starter backgrounds instead. Any existing background directory is backed up first.
 
-The images are linked rather than the directory itself: Omarchy's background cycling compares unresolved paths against a `realpath`-resolved link, so behind a directory symlink every "next wallpaper" resolves to the same first image.
+The installer links individual images rather than symlinking the directory: Omarchy's background cycling breaks behind a directory symlink and gets stuck on the first image.
 
-If you add or remove wallpapers later, rerun `./install.sh` — it refreshes the collection from the remembered folder. The refresh only touches images it linked itself: files you drop into `~/.config/omarchy/backgrounds/matugen-auto/` by hand are kept, both on refresh and on uninstall. Omarchy also snapshots backgrounds when a theme is applied, so run `omarchy theme set matugen-auto` again to show new ones in the switcher. Color generation always uses the current wallpaper.
+If you add or remove wallpapers later, rerun `./install.sh` to refresh the collection from the remembered folder. The refresh only touches images it linked itself; files you drop into `~/.config/omarchy/backgrounds/matugen-auto/` by hand are kept, on refresh and on uninstall. Omarchy snapshots backgrounds when a theme is applied, so run `omarchy theme set matugen-auto` again to show new ones in the switcher. Color generation always uses the current wallpaper.
 
 ## How it works
 
@@ -94,15 +94,15 @@ The installer never overwrites an existing settings file, and the uninstaller ke
 
 ### Wallpaper rotation
 
-Set `ROTATE` and the wallpaper advances by itself — a systemd user timer calls Omarchy's own `omarchy-theme-bg-next`, so you get the usual crossfade transition, and the color pipeline above follows automatically.
+Set `ROTATE` and the wallpaper advances by itself. A systemd user timer calls Omarchy's own `omarchy-theme-bg-next`, so you get the usual crossfade and the colors follow.
 
-- `ROTATE=daily` — a new wallpaper every morning (fires at midnight; a missed fire runs when the machine wakes up).
-- `ROTATE=30m`, `ROTATE=2h` — rotate continuously at that interval.
-- Unset (the default) — no rotation; the timer is disabled and its config removed.
+- `ROTATE=daily`: a new wallpaper every morning (fires at midnight; a missed fire runs when the machine wakes up).
+- `ROTATE=30m`, `ROTATE=2h`: rotate continuously at that interval.
+- Unset (the default): no rotation; the timer is disabled and its config removed.
 
-The setting is reconciled on every sync run, so after editing it, change the wallpaper once (SUPER+CTRL+SPACE) or rerun `./install.sh` to apply immediately — after that the rotation itself keeps the setting fresh. Rotation cycles the backgrounds of whatever theme is active, not just matugen-auto.
+The setting is applied on every sync run. After editing it, change the wallpaper once (SUPER+CTRL+SPACE) or rerun `./install.sh`; from then on the rotation itself picks up changes. Rotation cycles the backgrounds of whatever theme is active, not just matugen-auto.
 
-If you customized the template in an earlier version, note that light mode used to require editing `mode = "dark"` in the template as well. The current template emits `mode = "{{mode}}"`, so `MODE` in the settings file is the only knob. The `--diagnose` command reports when a customized template disagrees with the settings.
+Light mode used to require editing `mode = "dark"` in the template as well. The current template emits `mode = "{{mode}}"`, so `MODE` in the settings file is the only knob. `--diagnose` reports when a customized template disagrees with the settings.
 
 ### Template details
 
