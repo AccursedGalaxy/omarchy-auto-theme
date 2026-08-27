@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v1.2.0 — 2026-08-27
+
+Wallpaper rotation, and a fix for background cycling that also bites the
+stock SUPER+CTRL+SPACE flow when the backgrounds folder is a symlink.
+Upgrade by rerunning `./install.sh`; it migrates everything, flag or no flag.
 
 ### Fixed
 - **`--wallpapers` no longer breaks background cycling.** v1.1.0 symlinked the
