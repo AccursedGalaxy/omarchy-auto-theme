@@ -97,6 +97,7 @@ fi
 # settings file the script sources, which we never touch.
 say "Installing sync script"
 install -Dm755 "$REPO_DIR/bin/omarchy-matugen-sync" "$HOME/.local/bin/omarchy-matugen-sync"
+install -Dm755 "$REPO_DIR/bin/omarchy-auto-theme-we" "$HOME/.local/bin/omarchy-auto-theme-we"
 
 say "Installing theme skeleton"
 mkdir -p "$THEME_DIR/backgrounds"

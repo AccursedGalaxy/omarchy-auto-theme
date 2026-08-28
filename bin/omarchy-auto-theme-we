@@ -1,0 +1,99 @@
+#!/bin/bash
+# Generate the matugen-auto theme from a Wallpaper Engine project (or any
+# image or video), for live wallpapers that bypass omarchy's background state.
+#
+# Usage: omarchy-auto-theme-we <workshop-id|project-dir|image|video> [-- command...]
+#
+# The target resolves to a still image (a project's preview file; a frame
+# extracted with ffmpeg for animated sources) and is rendered through
+# `omarchy-matugen-sync --image`. With a trailing command, any running
+# linux-wallpaperengine instance is stopped and the command is exec'd after
+# the colors are in place, so one keybind swaps wallpaper and theme together:
+#
+#   omarchy-auto-theme-we 123456 -- linux-wallpaperengine --screen-root DP-1 --bg 123456
+set -euo pipefail
+
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
+export PATH="$HOME/.local/bin:$OMARCHY_PATH/bin:/usr/local/bin:/usr/bin:$PATH"
+
+# Steam's workshop content dir for Wallpaper Engine (app id 431960).
+WE_WORKSHOP_DIR="${WE_WORKSHOP_DIR:-$HOME/.local/share/Steam/steamapps/workshop/content/431960}"
+FRAME="$HOME/.cache/omarchy-auto-theme/we-frame.png"
+
+usage() { echo "Usage: omarchy-auto-theme-we <workshop-id|project-dir|image|video> [-- command...]"; }
+fail() {
+  echo "omarchy-auto-theme-we: $*" >&2
+  exit 1
+}
+
+[[ ${1:-} == -h || ${1:-} == --help ]] && { usage; exit 0; }
+[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+target=$1
+shift
+launch=()
+if [[ ${1:-} == -- ]]; then
+  shift
+  # A bare `--` signals intent to relaunch; an empty command is a typo.
+  [[ $# -ge 1 ]] || { usage >&2; exit 2; }
+  launch=("$@")
+elif [[ $# -gt 0 ]]; then
+  usage >&2
+  exit 2
+fi
+
+command -v omarchy-matugen-sync >/dev/null \
+  || fail "omarchy-matugen-sync not found on PATH; rerun install.sh"
+
+# Resolve the target to a source file. A local file or directory wins over a
+# workshop id of the same name; explicit paths beat implicit lookups.
+src=
+dir=
+if [[ -f $target ]]; then
+  src=$target
+elif [[ -d $target ]]; then
+  dir=$target
+elif [[ $target =~ ^[0-9]+$ && -d $WE_WORKSHOP_DIR/$target ]]; then
+  dir=$WE_WORKSHOP_DIR/$target
+else
+  fail "not a file, directory, or installed workshop id: $target"
+fi
+if [[ -z $src ]]; then
+  # Every Wallpaper Engine project ships a preview file next to project.json.
+  for name in preview.jpg preview.jpeg preview.png preview.webp preview.bmp preview.gif; do
+    [[ -f $dir/$name ]] && { src=$dir/$name; break; }
+  done
+  [[ -n $src ]] || fail "no preview image (preview.jpg/png/gif/...) found in $dir"
+fi
+
+# Matugen needs a still image; animated sources get a representative frame.
+case ${src,,} in
+*.jpg | *.jpeg | *.png | *.webp | *.bmp)
+  img=$src
+  ;;
+*)
+  command -v ffmpeg >/dev/null \
+    || fail "ffmpeg is needed to extract a frame from $src (install it, or pass a still image)"
+  mkdir -p "${FRAME%/*}"
+  # -vf thumbnail picks a representative frame instead of frame 0, which for
+  # scene/video wallpapers is often black or mid-fade-in.
+  ffmpeg -loglevel error -y -i "$src" -vf thumbnail -frames:v 1 "$FRAME" \
+    || fail "ffmpeg could not extract a frame from $src"
+  img=$FRAME
+  ;;
+esac
+
+omarchy-matugen-sync --image "$img"
+
+if [[ ${#launch[@]} -gt 0 ]]; then
+  # Wallpaper Engine on Linux has no "switch" operation: changing the live
+  # wallpaper is stop + relaunch. -x matches the exact binary name only.
+  # SIGTERM is asynchronous; wait for the old instance to release its
+  # layer-shell surface before starting the replacement.
+  if pkill -x linux-wallpaperengine 2>/dev/null; then
+    for _ in {1..50}; do
+      pgrep -x linux-wallpaperengine >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+  fi
+  exec "${launch[@]}"
+fi

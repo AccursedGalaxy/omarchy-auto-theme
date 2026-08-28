@@ -41,7 +41,10 @@ rm -rf "$HOME/.config/systemd/user/omarchy-bg-rotate.timer.d"
 systemctl --user daemon-reload
 
 rm -f "$HOME/.local/bin/omarchy-matugen-sync" \
+      "$HOME/.local/bin/omarchy-auto-theme-we" \
       "$HOME/.local/state/omarchy/matugen-auto.last"
+# Extracted video frames are generated state, ours to remove.
+rm -rf "$HOME/.cache/omarchy-auto-theme"
 
 # quattro.toml.new is only ours if it still carries the v1.0.0 header.
 if [[ -f $MATUGEN_DIR/quattro.toml.new ]] \

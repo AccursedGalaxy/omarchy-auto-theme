@@ -89,6 +89,17 @@ if [[ ${1:-} == --rotate ]]; then
   exec omarchy-theme-bg-next
 fi
 
+# --image: render the theme from an explicit image instead of the omarchy
+# wallpaper state. The escape hatch for wallpapers omarchy does not manage
+# (live wallpapers, wallpaper engine, theming from an arbitrary picture).
+IMAGE=
+if [[ ${1:-} == --image ]]; then
+  [[ -n ${2:-} ]] || { echo "omarchy-matugen-sync: --image needs a path" >&2; exit 2; }
+  [[ $# -eq 2 ]] || { echo "omarchy-matugen-sync: unexpected arguments after --image <path>" >&2; exit 2; }
+  IMAGE=$(readlink -f "$2" 2>/dev/null || true)
+  [[ -n $IMAGE && -f $IMAGE ]] || { echo "omarchy-matugen-sync: image not found: $2" >&2; exit 1; }
+fi
+
 diagnose() {
   local ok=0
   check() { # label, condition-command...
@@ -131,20 +142,53 @@ reconcile_rotation \
 # Only act while the adaptive theme is active.
 theme_name=$(cat "$STATE_DIR/current/theme.name" 2>/dev/null || true)
 slug=$(echo "$theme_name" | tr '[:upper:] ' '[:lower:]-')
-[[ $slug == matugen-auto ]] || exit 0
+if [[ -n $IMAGE ]]; then
+  # An explicit image is user intent: render regardless of the active theme
+  # and the fingerprint guard.
+  bg=$IMAGE
+else
+  [[ $slug == matugen-auto ]] || exit 0
 
-bg=$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || true)
-[[ -n $bg && -f $bg ]] || exit 0
+  bg=$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || true)
+  [[ -n $bg && -f $bg ]] || exit 0
 
-# Idempotency guard: theme refresh rewrites current/ without changing the
-# wallpaper, which re-triggers the path unit; bail unless the image changed.
-# Fingerprint is path + size + nanosecond mtime, so an image edited or
-# replaced in place still counts as a change even within the same second.
-fingerprint="$bg $(stat -c '%s %.Y' "$bg" 2>/dev/null || true)"
-[[ $fingerprint == "$(cat "$LAST_FILE" 2>/dev/null || true)" ]] && exit 0
+  # Idempotency guard: theme refresh rewrites current/ without changing the
+  # wallpaper, which re-triggers the path unit; bail unless the image changed.
+  # Fingerprint is path + size + nanosecond mtime, so an image edited or
+  # replaced in place still counts as a change even within the same second.
+  fingerprint="$bg $(stat -c '%s %.Y' "$bg" 2>/dev/null || true)"
+  [[ $fingerprint == "$(cat "$LAST_FILE" 2>/dev/null || true)" ]] && exit 0
+fi
 
 [[ -s $CONFIG ]] || { echo "omarchy-matugen-sync: missing $CONFIG; rerun install.sh" >&2; exit 1; }
 matugen image "$bg" --config "$CONFIG" --mode "$MODE" --prefer "$PREFER"
+
+# Atomic write so a crash mid-write can at worst cost one redundant
+# regeneration.
+commit_fingerprint() {
+  printf '%s\n' "$1" >"$LAST_FILE.tmp.$$"
+  mv -f "$LAST_FILE.tmp.$$" "$LAST_FILE"
+}
+
+if [[ -n $IMAGE ]]; then
+  if [[ $slug != matugen-auto ]]; then
+    # colors.toml is rendered for the next activation; refreshing now would
+    # re-apply the OTHER theme (a full shell-IPC round for nothing).
+    echo "omarchy-matugen-sync: note: active theme is '${theme_name:-none}'; run 'omarchy theme set matugen-auto' to see the colors" >&2
+    exit 0
+  fi
+  # The refresh below rewrites current/ mid-run, which re-triggers the path
+  # unit while this process is still inside omarchy-theme-refresh. Commit the
+  # static wallpaper's fingerprint BEFORE refreshing so that racing run
+  # no-ops instead of clobbering this palette with the static wallpaper's
+  # colors. Safe: the refresh runs with OMARCHY_THEME_SKIP_BACKGROUND=1 and
+  # never rewrites the background link.
+  cur=$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || true)
+  [[ -n $cur && -f $cur ]] \
+    && commit_fingerprint "$cur $(stat -c '%s %.Y' "$cur" 2>/dev/null || true)"
+  omarchy-theme-refresh
+  exit 0
+fi
 
 # Re-render every omarchy template (shell, neovim, terminal OSC, ...) from the
 # freshly generated colors.toml. Runs with OMARCHY_THEME_SKIP_BACKGROUND=1
@@ -153,7 +197,5 @@ omarchy-theme-refresh
 
 # Commit the fingerprint only after the whole pipeline succeeded (set -e gets
 # us here only on success): a failed matugen or refresh must retry on the next
-# trigger, not be recorded as done. Atomic write so a crash mid-write can at
-# worst cost one redundant regeneration.
-printf '%s\n' "$fingerprint" >"$LAST_FILE.tmp.$$"
-mv -f "$LAST_FILE.tmp.$$" "$LAST_FILE"
+# trigger, not be recorded as done.
+commit_fingerprint "$fingerprint"

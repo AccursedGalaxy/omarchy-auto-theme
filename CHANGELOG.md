@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **`omarchy-matugen-sync --image <path>`.** Renders the theme from an
+  explicit image, bypassing Omarchy's wallpaper state and the fingerprint
+  guard. The escape hatch for wallpapers Omarchy does not manage. The static
+  wallpaper's fingerprint is recorded before the refresh fires, so the
+  refresh-triggered path unit run cannot clobber the palette. While another
+  theme is active, the render is written for the next activation and the
+  refresh is skipped.
+- **`omarchy-auto-theme-we`.** Wallpaper Engine companion: resolves a
+  workshop id, project folder, image, or video to a still frame (ffmpeg for
+  animated sources) and themes the desktop from it. With a trailing
+  `-- command...` it stops the running linux-wallpaperengine and execs the
+  command after the colors are in place, so one keybind swaps wallpaper and
+  theme together.
+
 ## v1.2.0 — 2026-08-27
 
 Wallpaper rotation, and a fix for background cycling that also bites the

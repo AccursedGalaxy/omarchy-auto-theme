@@ -197,6 +197,28 @@ Claude Code needs no extra template. Omarchy generates its theme from `colors.to
 omarchy-theme-set-claude --activate
 ```
 
+### Live wallpapers and Wallpaper Engine
+
+Omarchy only manages static wallpapers, so live wallpapers (for example via [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)) bypass the automatic pipeline. Two commands cover them:
+
+```bash
+# Theme from any image or video, ignoring Omarchy's wallpaper state:
+omarchy-matugen-sync --image ~/Pictures/frame.png
+
+# Theme from a Wallpaper Engine project (workshop id or project folder):
+omarchy-auto-theme-we 123456789
+```
+
+`omarchy-auto-theme-we` renders the theme from the project's preview image. For animated previews and videos it extracts a still frame with ffmpeg.
+
+To switch the wallpaper and the theme with one command, append your launch command after `--`. The wrapper stops the running linux-wallpaperengine instance and starts the new one once the colors are in place:
+
+```bash
+omarchy-auto-theme-we 123456789 -- linux-wallpaperengine --screen-root DP-1 --bg 123456789
+```
+
+Point your keybind or startup script at that line and live wallpapers become as set-and-forget as the rest.
+
 ### Other matugen templates
 
 You can extend `~/.config/matugen/omarchy-auto-theme.toml` with templates for tools such as Starship, Zsh, Yazi, or Neovim. Add a `[templates.<name>]` block with a template path and output path. Every wallpaper change renders all configured templates in one matugen run.
@@ -225,6 +247,10 @@ pywal and wallust generate standalone colors that you wire into each application
 ### Does it support light mode?
 
 Yes. Set `MODE=light` in `~/.config/omarchy-auto-theme/settings`.
+
+### Does it work with Wallpaper Engine and live wallpapers?
+
+Yes, with one command per switch. Live wallpapers bypass Omarchy's background state, so there is no change event to watch. Instead, `omarchy-auto-theme-we <workshop-id>` derives a still frame from the project's preview and themes the desktop from it. It can also relaunch linux-wallpaperengine in the same call, so a single keybind swaps both. See "Live wallpapers and Wallpaper Engine".
 
 ### Can it rotate wallpapers on a schedule?
 

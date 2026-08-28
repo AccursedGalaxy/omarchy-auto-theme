@@ -35,12 +35,29 @@ EOF
 cat >"$MOCKS/omarchy-theme-refresh" <<'EOF'
 #!/bin/bash
 echo "omarchy-theme-refresh" >>"$MOCK_LOG"
+# Snapshot the fingerprint file as it stands when the refresh fires, so tests
+# can assert commit-before-refresh ordering (the real refresh re-triggers the
+# path unit mid-run).
+cp "$HOME/.local/state/omarchy/matugen-auto.last" "$HOME/.last-at-refresh" 2>/dev/null || true
 [[ ${MOCK_REFRESH_FAIL:-} == 1 ]] && exit 1
 exit 0
 EOF
 cat >"$MOCKS/omarchy-theme-bg-next" <<'EOF'
 #!/bin/bash
 echo "omarchy-theme-bg-next" >>"$MOCK_LOG"
+EOF
+cat >"$MOCKS/ffmpeg" <<'EOF'
+#!/bin/bash
+echo "ffmpeg $*" >>"$MOCK_LOG"
+[[ ${MOCK_FFMPEG_FAIL:-} == 1 ]] && exit 1
+out="${@: -1}"
+mkdir -p "$(dirname "$out")"
+printf 'frame' >"$out"
+EOF
+cat >"$MOCKS/pkill" <<'EOF'
+#!/bin/bash
+echo "pkill $*" >>"$MOCK_LOG"
+exit 0
 EOF
 cat >"$MOCKS/systemctl" <<'EOF'
 #!/bin/bash
@@ -70,7 +87,7 @@ fresh_home() { # name -> sets HOME and MOCK_LOG
   export MOCK_LOG="$HOME/mock.log"
   : >"$MOCK_LOG"
   unset MOCK_MATUGEN_FAIL MOCK_MATUGEN_NOOP MOCK_SYSTEMCTL_FAIL MOCK_REFRESH_FAIL \
-        MOCK_TIMER_ENABLED MOCK_TIMER_ACTIVE
+        MOCK_TIMER_ENABLED MOCK_TIMER_ACTIVE MOCK_FFMPEG_FAIL
 }
 
 CONFIG_REL=".config/matugen/omarchy-auto-theme.toml"
@@ -512,6 +529,135 @@ touch -d '2004-04-04' "$STATE/wall.png"
 check "sync exits 0" "$SYNC"
 check "orphan timer disabled" grep -q "disable --now omarchy-bg-rotate.timer" "$MOCK_LOG"
 unset MOCK_TIMER_ENABLED
+
+# --- 14. --image override and the wallpaper-engine wrapper -------------------
+echo "test: --image renders an arbitrary image regardless of the active theme"
+fresh_home home-image
+"$REPO_DIR/install.sh" >/dev/null 2>&1
+SYNC="$HOME/.local/bin/omarchy-matugen-sync"
+STATE="$HOME/.local/state/omarchy"
+mkdir -p "$STATE/current"
+printf 'wall' >"$STATE/wall.png"
+ln -sf "$STATE/wall.png" "$STATE/current/background"
+echo "Other Theme" >"$STATE/current/theme.name"
+printf 'live' >"$HOME/frame.png"
+: >"$MOCK_LOG"
+check "--image exits 0 under another theme" "$SYNC" --image "$HOME/frame.png"
+check "--image renders the given image" grep -q "matugen image $HOME/frame.png" "$MOCK_LOG"
+check "--image under another theme skips the refresh" \
+  bash -c "! grep -q omarchy-theme-refresh '$MOCK_LOG'"
+
+echo "test: --image survives the refresh-triggered path unit (no clobber)"
+echo "Matugen Auto" >"$STATE/current/theme.name"
+"$SYNC" >/dev/null 2>&1          # normal sync records wall.png
+: >"$MOCK_LOG"
+check "--image exits 0 with matugen-auto active" "$SYNC" --image "$HOME/frame.png"
+check "--image rendered" grep -q "matugen image $HOME/frame.png" "$MOCK_LOG"
+check "--image with matugen-auto active refreshes omarchy" \
+  grep -q omarchy-theme-refresh "$MOCK_LOG"
+# The real refresh re-triggers the path unit while it is still running, so
+# the guard must already be on disk when the refresh starts. The refresh mock
+# snapshots the fingerprint file into ~/.last-at-refresh at that moment.
+rm -f "$STATE/matugen-auto.last" "$HOME/.last-at-refresh"   # post-install state
+check "fresh install state: --image exits 0" "$SYNC" --image "$HOME/frame.png"
+check "wallpaper fingerprint committed before the refresh fires" \
+  grep -q "$STATE/wall.png" "$HOME/.last-at-refresh"
+: >"$MOCK_LOG"
+check "loopback trigger: exits 0" "$SYNC"
+check "loopback trigger: does not clobber the --image palette" \
+  bash -c "! grep -q matugen '$MOCK_LOG'"
+touch -d '2005-05-05' "$STATE/wall.png"
+: >"$MOCK_LOG"
+check "real wallpaper change still regenerates" \
+  bash -c "'$SYNC' && grep -q 'matugen image' '$MOCK_LOG'"
+
+echo "test: --image input validation"
+check "missing path: exit 2" bash -c "'$SYNC' --image; [[ \$? -eq 2 ]]"
+check "nonexistent file: exit 1" bash -c "'$SYNC' --image '$HOME/nope.png'; [[ \$? -eq 1 ]]"
+check "stray args after --image: exit 2" \
+  bash -c "'$SYNC' --image '$HOME/frame.png' --mode light; [[ \$? -eq 2 ]]"
+
+echo "test: wallpaper-engine wrapper resolves projects and calls --image"
+WE="$HOME/.local/bin/omarchy-auto-theme-we"
+check "repo wrapper is executable" test -x "$REPO_DIR/bin/omarchy-auto-theme-we"
+check "wrapper installed" test -x "$WE"
+mkdir -p "$HOME/we-project"
+printf 'preview' >"$HOME/we-project/preview.jpg"
+: >"$MOCK_LOG"
+check "project dir: exits 0" "$WE" "$HOME/we-project"
+check "project dir: preview rendered" \
+  grep -q "matugen image $HOME/we-project/preview.jpg" "$MOCK_LOG"
+
+mkdir -p "$HOME/we project (copy)"
+printf 'preview' >"$HOME/we project (copy)/preview.jpg"
+: >"$MOCK_LOG"
+check "project dir with spaces: exits 0" "$WE" "$HOME/we project (copy)"
+check "project dir with spaces: preview rendered" \
+  grep -q "matugen image $HOME/we project (copy)/preview.jpg" "$MOCK_LOG"
+
+export WE_WORKSHOP_DIR="$HOME/workshop"
+mkdir -p "$WE_WORKSHOP_DIR/123456"
+printf 'preview' >"$WE_WORKSHOP_DIR/123456/preview.png"
+: >"$MOCK_LOG"
+check "workshop id: exits 0" "$WE" 123456
+check "workshop id: preview rendered" \
+  grep -q "matugen image $WE_WORKSHOP_DIR/123456/preview.png" "$MOCK_LOG"
+unset WE_WORKSHOP_DIR
+
+echo "test: wrapper extracts a frame from animated previews"
+mkdir -p "$HOME/we-gif"
+printf 'gifdata' >"$HOME/we-gif/preview.gif"
+: >"$MOCK_LOG"
+check "animated preview: exits 0" "$WE" "$HOME/we-gif"
+check "animated preview: ffmpeg invoked" grep -q "ffmpeg" "$MOCK_LOG"
+check "animated preview: extracted frame rendered" \
+  grep -q "matugen image $HOME/.cache/omarchy-auto-theme/we-frame.png" "$MOCK_LOG"
+printf 'video' >"$HOME/clip.mp4"
+: >"$MOCK_LOG"
+check "direct video arg: exits 0" "$WE" "$HOME/clip.mp4"
+check "direct video arg: frame rendered" \
+  grep -q "matugen image $HOME/.cache/omarchy-auto-theme/we-frame.png" "$MOCK_LOG"
+export MOCK_FFMPEG_FAIL=1
+check "ffmpeg failure: wrapper exits nonzero" \
+  bash -c "! '$WE' '$HOME/clip.mp4' >/dev/null 2>&1"
+unset MOCK_FFMPEG_FAIL
+
+printf 'img' >"$HOME/direct.png"
+: >"$MOCK_LOG"
+check "direct image arg: exits 0" "$WE" "$HOME/direct.png"
+check "direct image arg rendered" grep -q "matugen image $HOME/direct.png" "$MOCK_LOG"
+
+echo "test: wrapper exec mode stops wallpaperengine and runs the command"
+cat >"$HOME/.local/bin/we-launch" <<'EOF'
+#!/bin/bash
+echo "we-launch $*" >>"$MOCK_LOG"
+EOF
+chmod +x "$HOME/.local/bin/we-launch"
+: >"$MOCK_LOG"
+check "exec mode: exits 0" "$WE" "$HOME/direct.png" -- we-launch --screen-root DP-1
+check "exec mode: theme rendered first" grep -q "matugen image $HOME/direct.png" "$MOCK_LOG"
+check "exec mode: previous instance stopped" \
+  grep -q -- "pkill -x linux-wallpaperengine" "$MOCK_LOG"
+check "exec mode: command ran with its args" \
+  grep -q -- "we-launch --screen-root DP-1" "$MOCK_LOG"
+: >"$MOCK_LOG"
+check "no exec mode: wallpaperengine left alone" \
+  bash -c "'$WE' '$HOME/direct.png' && ! grep -q pkill '$MOCK_LOG'"
+
+echo "test: wrapper input validation"
+check "no args: exit 2" bash -c "'$WE'; [[ \$? -eq 2 ]]"
+check "stray args without --: exit 2" \
+  bash -c "'$WE' '$HOME/direct.png' extra; [[ \$? -eq 2 ]]"
+check "-- with no command: exit 2" \
+  bash -c "'$WE' '$HOME/direct.png' --; [[ \$? -eq 2 ]]"
+check "--help: exit 0" bash -c "'$WE' --help >/dev/null; [[ \$? -eq 0 ]]"
+check "unresolvable target: exit 1" bash -c "'$WE' '$HOME/nope'; [[ \$? -eq 1 ]]"
+mkdir -p "$HOME/we-empty"
+check "dir without preview: exit 1" bash -c "'$WE' '$HOME/we-empty'; [[ \$? -eq 1 ]]"
+
+echo "test: uninstall removes the wrapper"
+check "uninstall exits 0" "$REPO_DIR/uninstall.sh"
+check "wrapper removed" test ! -e "$WE"
 
 if command -v systemd-analyze >/dev/null 2>&1; then
   echo "test: shipped units verify (base alone, and with each drop-in shape)"
