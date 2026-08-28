@@ -269,3 +269,39 @@ systemctl, ffmpeg, pkill/pgrep)
    `omarchy-menu-images --filterable` over workshop previews? (The picker is
    public; a selection step would still be zero new UI.) Default proposal:
    import all, `import --remove <id>` to prune.
+
+## 9. Post-implementation findings (live testing, 2026-08-28)
+
+Both observed by Robin within minutes of the first real `import` (140
+wallpapers). Investigated; fixes designed but deliberately not built in v1.
+
+1. **Low-res zoomed flash on pick.** Workshop previews are small squares
+   (192x192–1440x1440 in the live collection, mostly ≤1080) and omarchy's
+   background plugin cover-crops them onto 3440x1440, so the loading frame
+   is briefly blurry and zoomed until WE fades in. The same still is the
+   lock-screen image and bar-contrast source, where the low resolution also
+   shows. Options, in rising invasiveness:
+   - Video-type projects: extract the frame from the project's actual video
+     (`project.json` `file`) instead of the preview — full wallpaper
+     resolution, but covers only video types (most projects are scenes).
+   - "Still upgrade": after the first successful launch, capture a real
+     frame via `linux-wallpaperengine --screenshot` and overwrite the still
+     in place (same path keeps the grid's `-samefile` match and the bg
+     symlink valid). The overwrite changes the fingerprint, so the path
+     unit re-renders the palette from the better frame and restarts WE
+     once — must be sequenced to not fight the running instance.
+   - Accept it: the state lasts well under a second on this machine.
+
+2. **Picker opens slowly with a large collection.** Two separate costs:
+   - One-time: the first grid open after import generates all missing
+     thumbnails synchronously (`omarchy-theme-bg-switcher` does not pass
+     `--lazy-thumbnails`); ~140 `vipsthumbnail` runs.
+   - Per-open: the shell ImagePicker decodes every 1536x864 thumbnail each
+     time the grid opens; cost scales with collection size.
+   Mitigations: end `import` with `omarchy-menu-images --cache-only
+   <theme-bgs> <user-bgs>` so thumbnails exist before the first open
+   (verified: 12ms when warm), optionally follow with `--preload` (public
+   flag that stages rows in the shell's ImagePicker; nothing in Omarchy
+   4.0.0.alpha calls it today, so behavior under theme switches is
+   unverified); and document selective `import <id>...` as the remedy for
+   users subscribed to hundreds.

@@ -199,25 +199,43 @@ omarchy-theme-set-claude --activate
 
 ### Live wallpapers and Wallpaper Engine
 
-Omarchy only manages static wallpapers, so live wallpapers (for example via [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)) bypass the automatic pipeline. Two commands cover them:
+With [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine) installed, your Wallpaper Engine wallpapers can behave like native Omarchy backgrounds. Import them once:
+
+```bash
+omarchy-auto-theme-we import
+```
+
+This places a still image of every workshop wallpaper you are subscribed to into the theme's background collection. They appear in the normal SUPER + CTRL + SPACE grid with real thumbnails and cycle with the ROTATE timer like any other wallpaper. Picking one starts the live wallpaper and themes the desktop from it; picking a static wallpaper stops it. The live wallpaper comes back after a reboot, and if it ever crashes, the desktop falls back to the still image.
+
+Rerunning `import` (or `./install.sh`) refreshes the collection: new Steam subscriptions appear and unsubscribed ones disappear. `import 123456789` imports selected projects only, and `import --remove` deletes everything the import created while leaving your own files alone. Nothing WE-related activates unless you run `import`.
+
+Three optional knobs in `~/.config/omarchy-auto-theme/settings`:
+
+```bash
+WE_FLAGS="--silent --fps 30 --disable-mouse"  # extra linux-wallpaperengine flags
+WE_SCREENS="DP-1 DP-2"                        # outputs to draw on (default: all)
+WE_LAUNCH="my-we-launcher %id"                # replace the whole launch command
+```
+
+`WE_LAUNCH` is the escape hatch if you already start Wallpaper Engine your own way. The thumbnails, palette sync, and rotation keep working; only the launch is yours.
+
+If a live wallpaper does not start, check `systemctl --user status omarchy-we` and run `omarchy-matugen-sync --diagnose`.
+
+Two lower-level commands remain for wallpapers Omarchy does not manage at all:
 
 ```bash
 # Theme from any image or video, ignoring Omarchy's wallpaper state:
 omarchy-matugen-sync --image ~/Pictures/frame.png
 
-# Theme from a Wallpaper Engine project (workshop id or project folder):
+# Theme from a Wallpaper Engine project (workshop id, folder, image, or video):
 omarchy-auto-theme-we 123456789
 ```
 
-`omarchy-auto-theme-we` renders the theme from the project's preview image. For animated previews and videos it extracts a still frame with ffmpeg.
-
-To switch the wallpaper and the theme with one command, append your launch command after `--`. The wrapper stops the running linux-wallpaperengine instance and starts the new one once the colors are in place:
+The wrapper renders the theme from the project's preview image and extracts a still frame with ffmpeg for animated previews and videos. To switch the wallpaper and the theme with one command, append your launch command after `--`. The wrapper stops the running linux-wallpaperengine instance and starts the new one once the colors are in place:
 
 ```bash
 omarchy-auto-theme-we 123456789 -- linux-wallpaperengine --screen-root DP-1 --bg 123456789
 ```
-
-Point your keybind or startup script at that line and live wallpapers become as set-and-forget as the rest.
 
 ### Other matugen templates
 
@@ -250,7 +268,7 @@ Yes. Set `MODE=light` in `~/.config/omarchy-auto-theme/settings`.
 
 ### Does it work with Wallpaper Engine and live wallpapers?
 
-Yes, with one command per switch. Live wallpapers bypass Omarchy's background state, so there is no change event to watch. Instead, `omarchy-auto-theme-we <workshop-id>` derives a still frame from the project's preview and themes the desktop from it. It can also relaunch linux-wallpaperengine in the same call, so a single keybind swaps both. See "Live wallpapers and Wallpaper Engine".
+Yes. Run `omarchy-auto-theme-we import` once and your Wallpaper Engine wallpapers show up in the normal SUPER + CTRL + SPACE picker next to your static ones. Picking one launches the live wallpaper and themes the desktop from it. See "Live wallpapers and Wallpaper Engine".
 
 ### Can it rotate wallpapers on a schedule?
 
