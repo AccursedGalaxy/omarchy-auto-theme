@@ -101,10 +101,6 @@ cat >"$MOCKS/omarchy-menu-images" <<'EOF'
 #!/bin/bash
 echo "omarchy-menu-images $*" >>"$MOCK_LOG"
 EOF
-cat >"$MOCKS/systemd-run" <<'EOF'
-#!/bin/bash
-echo "systemd-run $*" >>"$MOCK_LOG"
-EOF
 chmod +x "$MOCKS"/*
 export PATH="$MOCKS:$PATH"
 
@@ -673,8 +669,8 @@ chmod +x "$HOME/.local/bin/we-launch"
 : >"$MOCK_LOG"
 check "exec mode: exits 0" "$WE" "$HOME/direct.png" -- we-launch --screen-root DP-1
 check "exec mode: theme rendered first" grep -q "matugen image $HOME/direct.png" "$MOCK_LOG"
-check "exec mode: previous instance stopped (cmdline match, not -x)" \
-  grep -q -- "pkill -f (^|/)linux-wallpaperengine( |\$)" "$MOCK_LOG"
+check "exec mode: previous instance stopped (comm match, never the caller's cmdline)" \
+  grep -q -- "pkill -x linux-wallpaper(engine)?" "$MOCK_LOG"
 check "exec mode: command ran with its args" \
   grep -q -- "we-launch --screen-root DP-1" "$MOCK_LOG"
 : >"$MOCK_LOG"
@@ -805,8 +801,6 @@ check "we bg: palette rendered from the still" grep -q "matugen image $UB/we-111
 check "we bg: launcher restarted without blocking" \
   grep -q -- "--no-block restart omarchy-we.service" "$MOCK_LOG"
 check "we bg: failed-state reset before restart" grep -q "reset-failed omarchy-we.service" "$MOCK_LOG"
-check "first launch schedules a capture follow-up" \
-  grep -q "systemd-run .*omarchy-we-followup" "$MOCK_LOG"
 printf 'wall' >"$STATE/wall.png"
 ln -sf "$STATE/wall.png" "$STATE/current/background"
 export MOCK_WE_ACTIVE=0
@@ -822,13 +816,13 @@ ln -sf "$STATE/wall2.png" "$STATE/current/background"
 : >"$MOCK_LOG"
 check "static bg with launcher already off: sync exits 0" "$SYNC"
 check "already off: no stop churn" bash -c "! grep -q 'stop omarchy-we' '$MOCK_LOG'"
-printf 'orphan' >"$UB/we-999.jpg"
-ln -sf "$UB/we-999.jpg" "$STATE/current/background"
+mv "$WE_WORKSHOP_DIR/666" "$WE_WORKSHOP_DIR/666.gone"   # manifested still, project gone
+ln -sf "$UB/we-666.jpg" "$STATE/current/background"
 : >"$MOCK_LOG"
 check "vanished project: sync exits 0" "$SYNC"
-check "vanished project: palette still rendered" grep -q "matugen image $UB/we-999.jpg" "$MOCK_LOG"
+check "vanished project: palette still rendered" grep -q "matugen image $UB/we-666.jpg" "$MOCK_LOG"
 check "vanished project: no launcher restart" bash -c "! grep -q 'restart omarchy-we' '$MOCK_LOG'"
-rm -f "$UB/we-999.jpg"
+mv "$WE_WORKSHOP_DIR/666.gone" "$WE_WORKSHOP_DIR/666"
 ln -sf "$UB/we-111.jpg" "$STATE/current/background"
 "$SYNC" >/dev/null 2>&1
 echo "Other Theme" >"$STATE/current/theme.name"
@@ -852,6 +846,16 @@ export MOCK_WE_ACTIVE=0   # launcher now running with the recorded id
 : >"$MOCK_LOG"
 check "same bg, launcher up: sync exits 0" "$SYNC"
 check "no restart churn while running" bash -c "! grep -qE '(restart|stop) omarchy-we' '$MOCK_LOG'"
+
+echo "test: a crash-looped unit stays down for the same wallpaper"
+unset MOCK_WE_ACTIVE      # unit is down...
+export MOCK_WE_FAILED=0   # ...because it hit its start limit
+: >"$MOCK_LOG"
+check "crash-looped same id: sync exits 0" "$SYNC"
+check "crash-looped same id: burst protection honored, no restart" \
+  bash -c "! grep -qE '(reset-failed|restart) omarchy-we' '$MOCK_LOG'"
+unset MOCK_WE_FAILED
+export MOCK_WE_ACTIVE=0
 ln -sf "$UB/gone-forever.jpg" "$STATE/current/background"
 : >"$MOCK_LOG"
 check "dangling bg symlink: sync exits 0" "$SYNC"
@@ -866,6 +870,8 @@ printf 'fullres' >"$SHOTS_DIR/111.jpg"   # newer than the imported still
 : >"$MOCK_LOG"
 check "capture landed: sync exits 0" "$SYNC"
 check "still upgraded in place" bash -c "[[ \$(cat '$UB/we-111.jpg') == fullres ]]"
+check "upgrade breaks the hardlink, Steam's preview intact" \
+  bash -c "grep -qx jpg '$WE_WORKSHOP_DIR/111/preview.jpg'"
 check "palette re-rendered from the upgraded still" \
   grep -q "matugen image $UB/we-111.jpg" "$MOCK_LOG"
 export MOCK_WE_ACTIVE=0
@@ -875,10 +881,29 @@ check "second sync: upgrade is one-shot" \
 unset MOCK_WE_ACTIVE
 check "import refresh keeps the upgraded still" \
   bash -c "'$WE' import >/dev/null 2>&1 && [[ \$(cat '$UB/we-111.jpg') == fullres ]]"
-rm -f "$STATE/matugen-auto.we"   # force a relaunch with the capture cached
+rm -f "$STATE/matugen-auto.we"   # cleared state re-arms the launch
 : >"$MOCK_LOG"
-check "restart with cached capture: no follow-up scheduled" \
-  bash -c "'$SYNC' && grep -q -- '--no-block restart' '$MOCK_LOG' && ! grep -q systemd-run '$MOCK_LOG'"
+check "cleared state: launcher restarted" \
+  bash -c "'$SYNC' && grep -q -- '--no-block restart' '$MOCK_LOG'"
+
+echo "test: a user-owned file at a we- name is never managed"
+mkdir -p "$WE_WORKSHOP_DIR/999"   # the workshop project even exists
+printf 'usermade' >"$UB/we-999.jpg"   # matches the name pattern, not in the manifest
+ln -sf "$UB/we-999.jpg" "$STATE/current/background"
+: >"$MOCK_LOG"
+check "user we- file: sync exits 0" "$SYNC"
+check "user we- file: rendered as a plain static wallpaper" \
+  grep -q "matugen image $UB/we-999.jpg" "$MOCK_LOG"
+check "user we- file: launcher never started" \
+  bash -c "! grep -q 'restart omarchy-we' '$MOCK_LOG'"
+printf 'stray' >"$SHOTS_DIR/999.jpg"   # a stray capture must not clobber it
+check "user we- file: sync exits 0 with a stray capture" "$SYNC"
+check "stray capture never overwrites the user file" \
+  bash -c "grep -qx usermade '$UB/we-999.jpg'"
+: >"$MOCK_LOG"
+check "user we- file: exec-current exits 0 without launching" \
+  bash -c "'$WE' --exec-current && ! grep -q linux-wallpaperengine '$MOCK_LOG'"
+rm -rf "$UB/we-999.jpg" "$SHOTS_DIR/999.jpg" "$WE_WORKSHOP_DIR/999"
 
 echo "test: --exec-current builds the launch from the current background"
 ln -sf "$UB/we-111.jpg" "$STATE/current/background"
@@ -939,6 +964,8 @@ echo "test: import applies a cache frame that landed while sync was not looking"
 printf 'fullres444' >"$SHOTS_DIR/444.jpg"
 check "import upgrades the still from the newer cached frame" \
   bash -c "'$WE' import >/dev/null 2>&1 && [[ \$(cat '$UB/we-444.jpg') == fullres444 ]]"
+check "import upgrade leaves Steam's preview intact" \
+  bash -c "grep -qx jpg '$WE_WORKSHOP_DIR/444/preview.jpg'"
 
 echo "test: capture pre-renders frames for uncaptured wallpapers"
 export MOCK_WE_ACTIVE=0   # managed instance currently running

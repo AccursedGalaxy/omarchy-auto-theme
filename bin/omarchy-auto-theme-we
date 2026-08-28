@@ -48,10 +48,13 @@ SETTINGS="$HOME/.config/omarchy-auto-theme/settings"
 # when cover-cropped onto a real monitor; a cached frame replaces them and
 # survives refreshes, so an upgraded still is never downgraded back.
 SHOTS="$HOME/.cache/omarchy-auto-theme/we-shots"
-# Matches the linux-wallpaperengine binary on a command line (any path, any
-# args) and nothing else. The kernel truncates process names to 15 chars
-# ("linux-wallpaper"), so pgrep/pkill -x can never match the full name.
-WE_PROC='(^|/)linux-wallpaperengine( |$)'
+# linux-wallpaperengine as pgrep/pkill -x sees it: the kernel truncates comm
+# to 15 chars ("linux-wallpaper"); accept the full name too in case that ever
+# changes. Matched against comm, never against the command line (-f): the
+# `-- /usr/bin/linux-wallpaperengine ...` relaunch form puts the binary's
+# path into THIS script's argv, and a cmdline match would kill the wrapper
+# itself between the pkill and the exec.
+WE_PROC='linux-wallpaper(engine)?'
 
 usage() {
   cat <<EOF
@@ -172,8 +175,13 @@ import_one() { # id
     old=${OLD_BY_ID[$id]:-}
     if [[ -n $old && -f $BG_DIR/$old ]]; then
       if [[ $best -nt $BG_DIR/$old ]]; then
-        cp -p "$best" "$BG_DIR/$old" 2>/dev/null \
-          || note "could not upgrade $old from the cached frame"
+        # Replace via temp + mv: the still may be a hardlink to Steam's own
+        # preview file (import links when it can), and cp would write through
+        # the shared inode, corrupting Steam's copy. mv swaps the directory
+        # entry and leaves the old inode untouched.
+        cp -p "$best" "$BG_DIR/$old.tmp.$$" 2>/dev/null \
+          && mv -f "$BG_DIR/$old.tmp.$$" "$BG_DIR/$old" 2>/dev/null \
+          || { rm -f "$BG_DIR/$old.tmp.$$"; note "could not upgrade $old from the cached frame"; }
       fi
       printf '%s\n' "$old"
       return 0
@@ -452,9 +460,9 @@ do_capture() {
     kill "$pid" 2>/dev/null || true
     # CEF helpers can outlive the parent; wait for the layer surface to be
     # released before the next launch. (No wait: the pid is disowned.)
-    if pkill -f "$WE_PROC" 2>/dev/null; then
+    if pkill -x "$WE_PROC" 2>/dev/null; then
       for _ in {1..50}; do
-        pgrep -f "$WE_PROC" >/dev/null 2>&1 || break
+        pgrep -x "$WE_PROC" >/dev/null 2>&1 || break
         sleep 0.1
       done
     fi
@@ -482,6 +490,10 @@ do_exec_current() {
   bg=$(readlink -f "$HOME/.local/state/omarchy/current/background" 2>/dev/null || true)
   base=${bg##*/}
   [[ $base =~ ^we-([0-9]+)\.[A-Za-z0-9]+$ ]] || exit 0
+  # Only stills our manifest lists are live-wallpaper picks: a user's own
+  # file at a we-<id> name (import refuses to touch those) is a static
+  # wallpaper like any other.
+  manifest_entries | grep -qxF -- "$base" || exit 0
   id=${BASH_REMATCH[1]}
   [[ -d $WE_WORKSHOP_DIR/$id ]] \
     || { note "workshop project $id not installed; static wallpaper stays"; exit 0; }
@@ -613,9 +625,9 @@ if [[ ${#launch[@]} -gt 0 ]]; then
   # Wallpaper Engine on Linux has no "switch" operation: changing the live
   # wallpaper is stop + relaunch. SIGTERM is asynchronous; wait for the old
   # instance to release its layer-shell surface before the replacement.
-  if pkill -f "$WE_PROC" 2>/dev/null; then
+  if pkill -x "$WE_PROC" 2>/dev/null; then
     for _ in {1..50}; do
-      pgrep -f "$WE_PROC" >/dev/null 2>&1 || break
+      pgrep -x "$WE_PROC" >/dev/null 2>&1 || break
       sleep 0.1
     done
   fi

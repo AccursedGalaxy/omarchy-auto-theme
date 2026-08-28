@@ -20,6 +20,9 @@ WE_UNIT=omarchy-we.service
 # Full-res frames the launcher captures on first launch (--screenshot); the
 # path unit watches this dir, so a landing capture re-runs this script.
 WE_SHOTS="$HOME/.cache/omarchy-auto-theme/we-shots"
+# Manifest of the stills `omarchy-auto-theme-we import` created; only
+# basenames it lists are live-wallpaper picks (or ours to upgrade).
+WE_MANIFEST="$HOME/.config/omarchy/backgrounds/matugen-auto/.omarchy-auto-theme-we"
 
 # User tuning lives in the settings file, not in this script; installs and
 # upgrades overwrite this file unconditionally. The file is a trusted bash
@@ -92,7 +95,12 @@ Persistent=false"
 # means "run the live wallpaper for this id", so the palette renders from
 # the still as usual and omarchy-we.service launches WE on top of it.
 we_detect_id() { # path -> echoes the workshop id, or returns 1
-  [[ ${1##*/} =~ ^we-([0-9]+)\.[A-Za-z0-9]+$ ]] || return 1
+  local base=${1##*/}
+  [[ $base =~ ^we-([0-9]+)\.[A-Za-z0-9]+$ ]] || return 1
+  # Only stills the import manifest lists count: a user's own file at a
+  # we-<id> name (which import refuses to touch) is a static wallpaper like
+  # any other - never launched over, never overwritten by a capture.
+  tail -n +2 "$WE_MANIFEST" 2>/dev/null | grep -qxF -- "$base" || return 1
   echo "${BASH_REMATCH[1]}"
 }
 
@@ -121,35 +129,39 @@ manage_we() { # bg-path
   local id
   if id=$(we_detect_id "$1"); then
     if [[ -d $WE_WORKSHOP_DIR/$id ]]; then
-      # A landed capture upgrades the low-res preview still in place (same
-      # path keeps the grid selection and the bg symlink valid); the
-      # changed fingerprint then re-renders the palette from the real
-      # frame. cp -p equalizes mtimes, so -nt makes this one-shot per
-      # capture and convergent if the file was still being written.
+      # A landed capture upgrades the low-res preview still (same path keeps
+      # the grid selection and the bg symlink valid); the changed fingerprint
+      # then re-renders the palette from the real frame. Replace via temp +
+      # mv: the still may be a hardlink to Steam's own preview file (import
+      # links when it can), and cp would write through the shared inode,
+      # corrupting Steam's copy. cp -p carries the shot's mtime over, so -nt
+      # makes this one-shot per capture and convergent if the shot was still
+      # being written.
       if [[ -f $WE_SHOTS/$id.jpg && $WE_SHOTS/$id.jpg -nt $1 ]]; then
-        cp -p "$WE_SHOTS/$id.jpg" "$1" 2>/dev/null \
-          && echo "omarchy-matugen-sync: upgraded the still for $id from a live capture" >&2
+        if cp -p "$WE_SHOTS/$id.jpg" "$1.tmp.$$" 2>/dev/null \
+           && mv -f "$1.tmp.$$" "$1" 2>/dev/null; then
+          echo "omarchy-matugen-sync: upgraded the still for $id from a live capture" >&2
+        else
+          rm -f "$1.tmp.$$"
+        fi
       fi
-      # Idempotency: skip only when this exact id is already running.
-      [[ $id == "$(cat "$WE_LAST" 2>/dev/null)" ]] \
-        && systemctl --user is-active --quiet "$WE_UNIT" 2>/dev/null && return 0
-      # A scene that crash-looped into the start limit must relaunch when
-      # re-picked; restart alone refuses then. --no-block: WE takes seconds
-      # to start and this script runs inside a systemd service itself.
+      # Idempotency: skip when this exact id is already running - or when it
+      # crash-looped into the unit's start limit (failed): restarting then
+      # would defeat the burst protection and spin the GPU forever. The
+      # degraded state is the static still; picking another wallpaper or
+      # theme clears WE_LAST and re-arms the launch.
+      if [[ $id == "$(cat "$WE_LAST" 2>/dev/null)" ]]; then
+        systemctl --user is-active --quiet "$WE_UNIT" 2>/dev/null && return 0
+        systemctl --user is-failed --quiet "$WE_UNIT" 2>/dev/null && return 0
+      fi
+      # A previously failed unit relaunching for a NEW pick needs its state
+      # cleared first; restart alone refuses then. --no-block: WE takes
+      # seconds to start and this script runs inside a systemd service
+      # itself. A first launch's capture lands after this run exits, so the
+      # path unit (watching $WE_SHOTS) triggers the -nt upgrade above.
       systemctl --user reset-failed "$WE_UNIT" 2>/dev/null || true
       if systemctl --user --no-block restart "$WE_UNIT" 2>/dev/null; then
         printf '%s\n' "$id" >"$WE_LAST"
-        # First launch of this wallpaper: WE captures its frame within a
-        # few seconds, often while THIS run is still active - and path
-        # units swallow events that arrive during an active service, so
-        # the one-shot capture would be lost. Schedule a single follow-up
-        # run to pick it up. (Any later trigger also heals a missed one:
-        # the -nt upgrade above runs on every sync.)
-        if [[ ! -f $WE_SHOTS/$id.jpg ]] && command -v systemd-run >/dev/null; then
-          systemd-run --user --collect --unit omarchy-we-followup \
-            --on-active=15 --timer-property=AccuracySec=2s \
-            systemctl --user start omarchy-matugen.service 2>/dev/null || true
-        fi
       else
         echo "omarchy-matugen-sync: could not start $WE_UNIT (rerun install.sh?)" >&2
       fi
@@ -215,7 +227,7 @@ diagnose() {
   local cur_bg we_id
   cur_bg=$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || true)
   we_id=$(we_detect_id "${cur_bg:-/}" || true)
-  if [[ -f $HOME/.config/omarchy/backgrounds/matugen-auto/.omarchy-auto-theme-we || -n $we_id ]]; then
+  if [[ -f $WE_MANIFEST || -n $we_id ]]; then
     check "linux-wallpaperengine on PATH"        command -v linux-wallpaperengine
     check "WE workshop dir: $WE_WORKSHOP_DIR"    test -d "$WE_WORKSHOP_DIR"
     check "WE launcher unit installed ($WE_UNIT)" test -f "$HOME/.config/systemd/user/$WE_UNIT"
