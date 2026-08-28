@@ -273,7 +273,35 @@ systemctl, ffmpeg, pkill/pgrep)
 ## 9. Post-implementation findings (live testing, 2026-08-28)
 
 Both observed by Robin within minutes of the first real `import` (140
-wallpapers). Investigated; fixes designed but deliberately not built in v1.
+wallpapers). RESOLVED same day; the designs below were built as follows:
+
+- Low-res stills: a best-still cache (`~/.cache/omarchy-auto-theme/we-shots`,
+  one full-res frame per id). Video-type projects fill it at import from the
+  project's video; scene/web types fill it via `--screenshot` on the first
+  managed launch (delay 90 frames; verified to keep rendering afterwards and
+  to capture past the fade). The sync script copies a landed capture over
+  the still in place (`cp -p`; equal mtimes make it one-shot) and the
+  fingerprint change re-renders the palette from the real frame. Refreshes
+  keep upgraded stills (manifest-id keep + cache-newer upgrade in import).
+  Trigger subtlety: captures land while the sync run that launched WE is
+  still active, and path units swallow events during an active service - so
+  a first launch schedules one transient follow-up run (`systemd-run
+  --on-active=15`); any later sync also heals a missed capture.
+- Picker latency: `import` ends with `omarchy-menu-images --cache-only` +
+  `--preload` over the switcher's exact dir pair, so thumbnails exist and
+  the shell has the rows before the first grid open.
+- Subscription sync (third finding, same day): the collection follows the
+  Steam subscription list automatically. `omarchy-we-import.path` watches
+  both the workshop content dir and `appworkshop_431960.acf` and triggers
+  `import --refresh`. The ACF's WorkshopItemDetails section is the source
+  of truth for all-mode imports (verified live: it updates the moment the
+  user unsubscribes, while content dirs linger until Steam
+  garbage-collects; 140 dirs on disk vs 17 live subscriptions) —
+  intersected with on-disk dirs, falling back to dirs when the ACF is
+  missing or unparseable. Enabled by `import` (opt-in), disabled by
+  `import --remove` and uninstall.
+
+Original investigation notes:
 
 1. **Low-res zoomed flash on pick.** Workshop previews are small squares
    (192x192–1440x1440 in the live collection, mostly ≤1080) and omarchy's

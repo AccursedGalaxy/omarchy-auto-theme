@@ -207,7 +207,9 @@ omarchy-auto-theme-we import
 
 This places a still image of every workshop wallpaper you are subscribed to into the theme's background collection. They appear in the normal SUPER + CTRL + SPACE grid with real thumbnails and cycle with the ROTATE timer like any other wallpaper. Picking one starts the live wallpaper and themes the desktop from it; picking a static wallpaper stops it. The live wallpaper comes back after a reboot, and if it ever crashes, the desktop falls back to the still image.
 
-Rerunning `import` (or `./install.sh`) refreshes the collection: new Steam subscriptions appear and unsubscribed ones disappear. `import 123456789` imports selected projects only, and `import --remove` deletes everything the import created while leaving your own files alone. Nothing WE-related activates unless you run `import`.
+The stills start out as the small workshop previews, then upgrade themselves to full monitor resolution: video wallpapers get a frame from the actual video at import, and scene wallpapers get a frame captured from the running wallpaper the first time you pick them. The palette follows the upgraded frame, so the colors match what is actually on screen. Import also pre-generates the picker's thumbnails, so the grid opens fast even with a large collection.
+
+The collection follows your Steam subscriptions on its own: subscribing or unsubscribing in Steam updates the picker within seconds, even before Steam gets around to deleting the downloaded files. Rerunning `import` (or `./install.sh`) forces the same refresh manually. `import 123456789` imports selected projects only, and `import --remove` deletes everything the import created while leaving your own files alone. Nothing WE-related activates unless you run `import`.
 
 Three optional knobs in `~/.config/omarchy-auto-theme/settings`:
 
