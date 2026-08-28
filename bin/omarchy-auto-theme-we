@@ -86,12 +86,16 @@ omarchy-matugen-sync --image "$img"
 
 if [[ ${#launch[@]} -gt 0 ]]; then
   # Wallpaper Engine on Linux has no "switch" operation: changing the live
-  # wallpaper is stop + relaunch. -x matches the exact binary name only.
+  # wallpaper is stop + relaunch. The kernel truncates process names to 15
+  # chars ("linux-wallpaper"), so -x can never match the full binary name;
+  # match the command line instead, anchored so only the binary itself (any
+  # path, any args) is hit and never an unrelated process mentioning it.
   # SIGTERM is asynchronous; wait for the old instance to release its
   # layer-shell surface before starting the replacement.
-  if pkill -x linux-wallpaperengine 2>/dev/null; then
+  we_proc='(^|/)linux-wallpaperengine( |$)'
+  if pkill -f "$we_proc" 2>/dev/null; then
     for _ in {1..50}; do
-      pgrep -x linux-wallpaperengine >/dev/null 2>&1 || break
+      pgrep -f "$we_proc" >/dev/null 2>&1 || break
       sleep 0.1
     done
   fi

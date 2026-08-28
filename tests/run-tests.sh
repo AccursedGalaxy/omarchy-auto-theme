@@ -59,6 +59,11 @@ cat >"$MOCKS/pkill" <<'EOF'
 echo "pkill $*" >>"$MOCK_LOG"
 exit 0
 EOF
+cat >"$MOCKS/pgrep" <<'EOF'
+#!/bin/bash
+echo "pgrep $*" >>"$MOCK_LOG"
+exit 1   # process already gone: the wait loop must exit immediately
+EOF
 cat >"$MOCKS/systemctl" <<'EOF'
 #!/bin/bash
 echo "systemctl $*" >>"$MOCK_LOG"
@@ -636,8 +641,8 @@ chmod +x "$HOME/.local/bin/we-launch"
 : >"$MOCK_LOG"
 check "exec mode: exits 0" "$WE" "$HOME/direct.png" -- we-launch --screen-root DP-1
 check "exec mode: theme rendered first" grep -q "matugen image $HOME/direct.png" "$MOCK_LOG"
-check "exec mode: previous instance stopped" \
-  grep -q -- "pkill -x linux-wallpaperengine" "$MOCK_LOG"
+check "exec mode: previous instance stopped (cmdline match, not -x)" \
+  grep -q -- "pkill -f (^|/)linux-wallpaperengine( |\$)" "$MOCK_LOG"
 check "exec mode: command ran with its args" \
   grep -q -- "we-launch --screen-root DP-1" "$MOCK_LOG"
 : >"$MOCK_LOG"
