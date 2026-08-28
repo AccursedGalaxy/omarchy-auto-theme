@@ -4,6 +4,8 @@ Automatic wallpaper-based dynamic theming for [Omarchy](https://omarchy.org) 4.0
 
 ![Switching wallpapers recolors the terminal and Neovim](assets/demo.gif)
 
+[The same demo on YouTube](https://youtu.be/HBVhvTdfqvY), in full resolution.
+
 Change your wallpaper and the rest of the desktop follows.
 [matugen](https://github.com/InioX/matugen) creates a Material You palette from the image.
 The project passes that palette to Omarchy's theme engine, which updates the whole Hyprland desktop: bar, notifications, lock screen, terminals, Neovim, btop, Claude Code, and other supported apps.
