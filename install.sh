@@ -196,6 +196,17 @@ if [[ -n $WALLPAPERS ]]; then
   } >"$user_bgs/$MANAGED_MARKER"
   say "Wallpaper collection synced from: $WALLPAPERS"
 fi
+# Refresh the Wallpaper Engine stills the same way: only when the user
+# already opted in by importing (the WE manifest exists), so new workshop
+# subscriptions appear and unsubscribed ones go away on a plain rerun.
+if [[ -f $user_bgs/.omarchy-auto-theme-we ]]; then
+  if "$HOME/.local/bin/omarchy-auto-theme-we" import --refresh; then
+    say "Wallpaper Engine collection refreshed"
+  else
+    warn "Wallpaper Engine collection not refreshed (run 'omarchy-auto-theme-we import' to retry)"
+  fi
+fi
+
 # -print -quit: find stops at the first hit. No pipe, so none of the
 # pipefail/SIGPIPE hazard a `| grep -q .` construction would carry.
 existing_bg=$(
@@ -242,6 +253,14 @@ if [[ ! -e $SETTINGS_FILE ]]; then
 # morning; an interval like 30m or 2h rotates continuously. Takes effect on
 # the next wallpaper/theme change (or rerun install.sh).
 #ROTATE=30m
+
+# Wallpaper Engine (only used after `omarchy-auto-theme-we import`).
+# Extra linux-wallpaperengine flags:
+#WE_FLAGS="--silent --fps 30 --disable-mouse"
+# Outputs to draw on, space-separated (default: all monitors):
+#WE_SCREENS="DP-1 DP-2"
+# Full launch command override (%id = workshop id) if you drive WE yourself:
+#WE_LAUNCH="my-we-launcher %id"
 EOF
   say "Created settings file: $SETTINGS_FILE"
 elif ! grep -q '^#\?ROTATE=' "$SETTINGS_FILE"; then
@@ -256,6 +275,21 @@ elif ! grep -q '^#\?ROTATE=' "$SETTINGS_FILE"; then
 #ROTATE=30m
 EOF
   say "Added the new ROTATE knob (commented) to $SETTINGS_FILE"
+fi
+if [[ -e $SETTINGS_FILE ]] && ! grep -q '^#\?WE_FLAGS=' "$SETTINGS_FILE"; then
+  # Settings file from before the Wallpaper Engine knobs existed: append the
+  # commented doc block, never rewrite user values.
+  cat >>"$SETTINGS_FILE" <<'EOF'
+
+# Wallpaper Engine (only used after `omarchy-auto-theme-we import`).
+# Extra linux-wallpaperengine flags:
+#WE_FLAGS="--silent --fps 30 --disable-mouse"
+# Outputs to draw on, space-separated (default: all monitors):
+#WE_SCREENS="DP-1 DP-2"
+# Full launch command override (%id = workshop id) if you drive WE yourself:
+#WE_LAUNCH="my-we-launcher %id"
+EOF
+  say "Added the new Wallpaper Engine knobs (commented) to $SETTINGS_FILE"
 fi
 
 # Honor the same user settings the sync script reads (a trusted bash fragment).
@@ -276,8 +310,11 @@ colors_after=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missin
 # --- systemd watcher -------------------------------------------------------
 say "Installing systemd user units"
 mkdir -p "$HOME/.config/systemd/user"
+# omarchy-we.service is shipped but never enabled here: WE integration is
+# opt-in via `omarchy-auto-theme-we import`, which enables it.
 cp "$REPO_DIR/systemd/omarchy-matugen.path" "$REPO_DIR/systemd/omarchy-matugen.service" \
   "$REPO_DIR/systemd/omarchy-bg-rotate.timer" "$REPO_DIR/systemd/omarchy-bg-rotate.service" \
+  "$REPO_DIR/systemd/omarchy-we.service" \
   "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
 systemctl --user enable --now omarchy-matugen.path

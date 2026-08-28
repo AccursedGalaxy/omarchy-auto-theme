@@ -1,0 +1,25 @@
+[Unit]
+Description=Wallpaper Engine live wallpaper for the current omarchy background
+# A crashing scene must degrade to the static preview underneath, not
+# crash-loop: after 3 failed starts in 60s the unit stays down until the next
+# wallpaper change restarts it.
+StartLimitIntervalSec=60
+StartLimitBurst=3
+After=graphical-session.target
+PartOf=graphical-session.target
+# A leftover enabled unit after an incomplete uninstall must not burst into
+# status-203 restarts.
+ConditionPathExists=%h/.local/bin/omarchy-auto-theme-we
+
+[Service]
+# Reads the current background symlink; exits 0 immediately when it is not a
+# Wallpaper Engine entry, so autostart is a no-op for static wallpapers.
+ExecStart=%h/.local/bin/omarchy-auto-theme-we --exec-current
+Restart=on-failure
+RestartSec=2
+# Exit 2 is settings validation (a config typo, not a scene crash): retrying
+# cannot help and would burn the start-limit budget.
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=graphical-session.target

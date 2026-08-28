@@ -70,9 +70,24 @@ echo "systemctl $*" >>"$MOCK_LOG"
 [[ ${MOCK_SYSTEMCTL_FAIL:-} == 1 ]] && exit 1
 case " $* " in
   *" is-enabled "*) exit "${MOCK_TIMER_ENABLED:-1}" ;;   # default: not enabled
-  *" is-active "*)  exit "${MOCK_TIMER_ACTIVE:-0}" ;;    # default: active
+  *" is-active "*)
+    # The WE launcher unit defaults to inactive; the timer to active.
+    [[ $* == *omarchy-we.service* ]] && exit "${MOCK_WE_ACTIVE:-1}"
+    exit "${MOCK_TIMER_ACTIVE:-0}" ;;
+  *" is-failed "*) exit "${MOCK_WE_FAILED:-1}" ;;   # default: not failed
 esac
 exit 0
+EOF
+cat >"$MOCKS/hyprctl" <<'EOF'
+#!/bin/bash
+echo "hyprctl $*" >>"$MOCK_LOG"
+# Two monitors; nested "name" keys mimic the real payload so only proper
+# top-level parsing passes.
+echo '[{"name":"DP-1","activeWorkspace":{"name":"1"}},{"name":"HDMI-A-1","activeWorkspace":{"name":"2"}}]'
+EOF
+cat >"$MOCKS/linux-wallpaperengine" <<'EOF'
+#!/bin/bash
+echo "linux-wallpaperengine $*" >>"$MOCK_LOG"
 EOF
 chmod +x "$MOCKS"/*
 export PATH="$MOCKS:$PATH"
@@ -92,7 +107,8 @@ fresh_home() { # name -> sets HOME and MOCK_LOG
   export MOCK_LOG="$HOME/mock.log"
   : >"$MOCK_LOG"
   unset MOCK_MATUGEN_FAIL MOCK_MATUGEN_NOOP MOCK_SYSTEMCTL_FAIL MOCK_REFRESH_FAIL \
-        MOCK_TIMER_ENABLED MOCK_TIMER_ACTIVE MOCK_FFMPEG_FAIL
+        MOCK_TIMER_ENABLED MOCK_TIMER_ACTIVE MOCK_FFMPEG_FAIL MOCK_WE_ACTIVE \
+        MOCK_WE_FAILED WE_WORKSHOP_DIR
 }
 
 CONFIG_REL=".config/matugen/omarchy-auto-theme.toml"
@@ -664,6 +680,204 @@ echo "test: uninstall removes the wrapper"
 check "uninstall exits 0" "$REPO_DIR/uninstall.sh"
 check "wrapper removed" test ! -e "$WE"
 
+# --- 15. Wallpaper Engine first-class integration ----------------------------
+echo "test: import materializes workshop previews as we-<id> stills"
+fresh_home home-we
+"$REPO_DIR/install.sh" >/dev/null 2>&1
+WE="$HOME/.local/bin/omarchy-auto-theme-we"
+SYNC="$HOME/.local/bin/omarchy-matugen-sync"
+UB="$HOME/.config/omarchy/backgrounds/matugen-auto"
+export WE_WORKSHOP_DIR="$HOME/workshop"
+mkdir -p "$WE_WORKSHOP_DIR/111" "$WE_WORKSHOP_DIR/222" "$WE_WORKSHOP_DIR/333" \
+         "$WE_WORKSHOP_DIR/not a project"
+printf 'jpg' >"$WE_WORKSHOP_DIR/111/preview.jpg"
+printf 'gif' >"$WE_WORKSHOP_DIR/222/preview.gif"
+printf 'png' >"$WE_WORKSHOP_DIR/333/preview.png"
+printf 'stray' >"$WE_WORKSHOP_DIR/not a project/preview.jpg"
+mkdir -p "$WE_WORKSHOP_DIR/555"
+printf 'jpg' >"$WE_WORKSHOP_DIR/555/preview.jpg"
+mkdir -p "$UB"
+printf 'precious' >"$UB/handadded.png"
+printf 'mine' >"$UB/we-555.jpg"   # user file already sitting at a we- name
+check "we unit shipped by install" test -f "$HOME/.config/systemd/user/omarchy-we.service"
+check "plain install never enables the we unit" \
+  bash -c "! grep -q 'enable omarchy-we' '$MOCK_LOG'"
+: >"$MOCK_LOG"
+check "import exits 0" "$WE" import
+check "still preview hardlinked" bash -c "[[ '$UB/we-111.jpg' -ef '$WE_WORKSHOP_DIR/111/preview.jpg' ]]"
+check "animated preview extracted via ffmpeg" \
+  bash -c "grep -q ffmpeg '$MOCK_LOG' && test -f '$UB/we-222.jpg'"
+check "png preview keeps its extension" test -f "$UB/we-333.png"
+check "non-numeric dirs skipped" bash -c "! ls '$UB'/we-not* >/dev/null 2>&1"
+check "manifest records mode all" bash -c "head -n1 '$UB/.omarchy-auto-theme-we' | grep -qx all"
+check "manifest lists the stills" grep -qx "we-222.jpg" "$UB/.omarchy-auto-theme-we"
+check "import enables the we unit (opt-in)" grep -q "enable omarchy-we.service" "$MOCK_LOG"
+check "user file untouched" grep -q "precious" "$UB/handadded.png"
+check "pre-existing file at a we- name kept" grep -q "mine" "$UB/we-555.jpg"
+check "kept user file not manifested" bash -c "! grep -qx 'we-555.jpg' '$UB/.omarchy-auto-theme-we'"
+rm -f "$UB/we-555.jpg"; rm -rf "$WE_WORKSHOP_DIR/555"
+check "known id refuses nothing in all mode" "$WE" import 111
+check "unknown id refuses even in all mode" bash -c "! '$WE' import 999 >/dev/null 2>&1"
+
+echo "test: install.sh rerun refreshes the imported collection"
+rm -rf "$WE_WORKSHOP_DIR/333"                       # unsubscribed
+mkdir -p "$WE_WORKSHOP_DIR/444"                     # newly subscribed
+printf 'jpg' >"$WE_WORKSHOP_DIR/444/preview.jpg"
+: >"$MOCK_LOG"
+check "rerun exits 0" "$REPO_DIR/install.sh"
+check "unsubscribed still removed" test ! -e "$UB/we-333.png"
+check "new subscription imported" test -f "$UB/we-444.jpg"
+check "refresh does not re-enable the unit" bash -c "! grep -q 'enable omarchy-we' '$MOCK_LOG'"
+
+echo "test: a still that cannot be written is skipped, not falsely manifested"
+rm -f "$UB/we-444.jpg"
+mkdir "$UB/we-444.jpg"   # a directory blocks both ln -f and cp -f
+check "blocked write: import exits 0" "$WE" import
+check "blocked entry dropped from manifest" \
+  bash -c "! grep -qx 'we-444.jpg' '$UB/.omarchy-auto-theme-we'"
+rmdir "$UB/we-444.jpg"
+check "unblocked rerun re-imports it" \
+  bash -c "'$WE' import >/dev/null 2>&1 && test -f '$UB/we-444.jpg'"
+
+echo "test: selective import and removal"
+: >"$MOCK_LOG"
+check "import --remove exits 0" "$WE" import --remove
+check "all our stills removed" bash -c "! ls '$UB'/we-* >/dev/null 2>&1"
+check "manifest removed" test ! -e "$UB/.omarchy-auto-theme-we"
+check "full removal disables the launcher unit" \
+  grep -q "disable --now omarchy-we.service" "$MOCK_LOG"
+check "user file survives removal" grep -q "precious" "$UB/handadded.png"
+check "rerun install with no manifest imports nothing" \
+  bash -c "'$REPO_DIR/install.sh' >/dev/null 2>&1 && ! ls '$UB'/we-* >/dev/null 2>&1"
+check "selective import exits 0" "$WE" import 111
+check "selected still imported" test -f "$UB/we-111.jpg"
+check "unselected project not imported" test ! -e "$UB/we-222.jpg"
+check "manifest records mode selected" bash -c "head -n1 '$UB/.omarchy-auto-theme-we' | grep -qx selected"
+check "install rerun keeps the selection narrow" \
+  bash -c "'$REPO_DIR/install.sh' >/dev/null 2>&1 && ! ls '$UB'/we-222* >/dev/null 2>&1"
+check "second selective import extends the selection" \
+  bash -c "'$WE' import 222 && test -f '$UB/we-111.jpg' && test -f '$UB/we-222.jpg'"
+check "selective removal prunes one entry" \
+  bash -c "'$WE' import --remove 111 && test ! -e '$UB/we-111.jpg' && test -f '$UB/we-222.jpg'"
+check "uninstalled id refuses" bash -c "! '$WE' import 999 >/dev/null 2>&1"
+"$WE" import >/dev/null 2>&1   # back to a full collection for the tests below
+
+echo "test: sync detects we- backgrounds and drives the launcher unit"
+STATE="$HOME/.local/state/omarchy"
+mkdir -p "$STATE/current"
+echo "Matugen Auto" >"$STATE/current/theme.name"
+ln -sf "$UB/we-111.jpg" "$STATE/current/background"
+: >"$MOCK_LOG"
+check "we bg: sync exits 0" "$SYNC"
+check "we bg: palette rendered from the still" grep -q "matugen image $UB/we-111.jpg" "$MOCK_LOG"
+check "we bg: launcher restarted without blocking" \
+  grep -q -- "--no-block restart omarchy-we.service" "$MOCK_LOG"
+check "we bg: failed-state reset before restart" grep -q "reset-failed omarchy-we.service" "$MOCK_LOG"
+printf 'wall' >"$STATE/wall.png"
+ln -sf "$STATE/wall.png" "$STATE/current/background"
+export MOCK_WE_ACTIVE=0
+: >"$MOCK_LOG"
+check "static bg: sync exits 0" "$SYNC"
+check "static bg: running launcher stopped" grep -q "stop omarchy-we.service" "$MOCK_LOG"
+check "static bg: no restart issued" bash -c "! grep -q 'restart omarchy-we' '$MOCK_LOG'"
+unset MOCK_WE_ACTIVE
+ln -sf "$UB/we-222.jpg" "$STATE/current/background"
+"$SYNC" >/dev/null 2>&1
+printf 'wall2' >"$STATE/wall2.png"
+ln -sf "$STATE/wall2.png" "$STATE/current/background"
+: >"$MOCK_LOG"
+check "static bg with launcher already off: sync exits 0" "$SYNC"
+check "already off: no stop churn" bash -c "! grep -q 'stop omarchy-we' '$MOCK_LOG'"
+printf 'orphan' >"$UB/we-999.jpg"
+ln -sf "$UB/we-999.jpg" "$STATE/current/background"
+: >"$MOCK_LOG"
+check "vanished project: sync exits 0" "$SYNC"
+check "vanished project: palette still rendered" grep -q "matugen image $UB/we-999.jpg" "$MOCK_LOG"
+check "vanished project: no launcher restart" bash -c "! grep -q 'restart omarchy-we' '$MOCK_LOG'"
+rm -f "$UB/we-999.jpg"
+ln -sf "$UB/we-111.jpg" "$STATE/current/background"
+"$SYNC" >/dev/null 2>&1
+echo "Other Theme" >"$STATE/current/theme.name"
+export MOCK_WE_ACTIVE=0
+: >"$MOCK_LOG"
+check "theme switched away: sync exits 0" "$SYNC"
+check "theme switched away: launcher stopped" grep -q "stop omarchy-we.service" "$MOCK_LOG"
+check "theme switched away: no regeneration" bash -c "! grep -q matugen '$MOCK_LOG'"
+unset MOCK_WE_ACTIVE
+echo "Matugen Auto" >"$STATE/current/theme.name"
+
+echo "test: launcher reconciles independently of the palette fingerprint"
+# Theme is back on matugen-auto with the same we-111 background: the palette
+# is up to date (fingerprint match) but the launcher was stopped above.
+: >"$MOCK_LOG"
+check "same bg, launcher down: sync exits 0" "$SYNC"
+check "launcher restarted despite unchanged wallpaper" \
+  grep -q -- "--no-block restart omarchy-we.service" "$MOCK_LOG"
+check "palette not re-rendered" bash -c "! grep -q matugen '$MOCK_LOG'"
+export MOCK_WE_ACTIVE=0   # launcher now running with the recorded id
+: >"$MOCK_LOG"
+check "same bg, launcher up: sync exits 0" "$SYNC"
+check "no restart churn while running" bash -c "! grep -qE '(restart|stop) omarchy-we' '$MOCK_LOG'"
+ln -sf "$UB/gone-forever.jpg" "$STATE/current/background"
+: >"$MOCK_LOG"
+check "dangling bg symlink: sync exits 0" "$SYNC"
+check "dangling bg symlink: launcher stopped" grep -q "stop omarchy-we.service" "$MOCK_LOG"
+unset MOCK_WE_ACTIVE
+ln -sf "$UB/we-111.jpg" "$STATE/current/background"
+
+echo "test: --exec-current builds the launch from the current background"
+ln -sf "$UB/we-111.jpg" "$STATE/current/background"
+: >"$MOCK_LOG"
+check "we bg: exec-current exits 0" "$WE" --exec-current
+check "one --screen-root/--bg pair per monitor" \
+  grep -q -- "--screen-root DP-1 --bg 111 --screen-root HDMI-A-1 --bg 111" "$MOCK_LOG"
+check "default WE_FLAGS included" grep -q -- "--silent --fps 30 --disable-mouse" "$MOCK_LOG"
+ln -sf "$STATE/wall.png" "$STATE/current/background"
+: >"$MOCK_LOG"
+check "static bg: exec-current exits 0 without launching" \
+  bash -c "'$WE' --exec-current && ! grep -q linux-wallpaperengine '$MOCK_LOG'"
+ln -sf "$UB/we-111.jpg" "$STATE/current/background"
+mkdir -p "$HOME/.config/omarchy-auto-theme"
+printf 'WE_SCREENS="DP-9"\nWE_FLAGS="--fps 24"\n' >"$HOME/.config/omarchy-auto-theme/settings"
+: >"$MOCK_LOG"
+check "WE_SCREENS override: exits 0" "$WE" --exec-current
+check "override screen used, no monitor probe" \
+  bash -c "grep -q -- '--fps 24 --screen-root DP-9 --bg 111' '$MOCK_LOG' && ! grep -q hyprctl '$MOCK_LOG'"
+cat >"$HOME/.local/bin/we-launch" <<'EOF'
+#!/bin/bash
+echo "we-launch $*" >>"$MOCK_LOG"
+EOF
+chmod +x "$HOME/.local/bin/we-launch"
+printf 'WE_LAUNCH="we-launch --custom %%id"\n' >"$HOME/.config/omarchy-auto-theme/settings"
+: >"$MOCK_LOG"
+check "WE_LAUNCH override: exits 0" "$WE" --exec-current
+check "override ran with the id substituted" grep -q -- "we-launch --custom 111" "$MOCK_LOG"
+check "override replaces the built launch" bash -c "! grep -q linux-wallpaperengine '$MOCK_LOG'"
+printf 'WE_FLAGS="--fps 30; rm -rf /"\n' >"$HOME/.config/omarchy-auto-theme/settings"
+check "invalid WE_FLAGS: exit 2" bash -c "'$WE' --exec-current; [[ \$? -eq 2 ]]"
+printf 'WE_SCREENS="DP-1;x"\n' >"$HOME/.config/omarchy-auto-theme/settings"
+check "invalid WE_SCREENS: exit 2" bash -c "'$WE' --exec-current; [[ \$? -eq 2 ]]"
+rm -f "$HOME/.config/omarchy-auto-theme/settings"
+
+echo "test: --diagnose covers the WE pipeline"
+export MOCK_WE_ACTIVE=0
+check "--diagnose passes with we bg and running launcher" "$SYNC" --diagnose
+unset MOCK_WE_ACTIVE
+check "--diagnose flags a we bg without the launcher running" \
+  bash -c "! '$SYNC' --diagnose >/dev/null 2>&1"
+ln -sf "$STATE/wall.png" "$STATE/current/background"
+check "--diagnose passes again on a static bg" "$SYNC" --diagnose
+
+echo "test: uninstall removes the we unit and imported stills"
+: >"$MOCK_LOG"
+check "uninstall exits 0" "$REPO_DIR/uninstall.sh"
+check "we unit disabled" grep -q "disable --now omarchy-we.service" "$MOCK_LOG"
+check "we unit file removed" test ! -e "$HOME/.config/systemd/user/omarchy-we.service"
+check "imported stills removed" bash -c "! ls '$UB'/we-* >/dev/null 2>&1"
+check "we manifest removed" test ! -e "$UB/.omarchy-auto-theme-we"
+check "user file survives uninstall" grep -q "precious" "$UB/handadded.png"
+unset WE_WORKSHOP_DIR
+
 if command -v systemd-analyze >/dev/null 2>&1; then
   echo "test: shipped units verify (base alone, and with each drop-in shape)"
   UNITS="$WORK/unit-verify"
@@ -677,6 +891,9 @@ if command -v systemd-analyze >/dev/null 2>&1; then
   printf '[Timer]\nOnActiveSec=\nOnUnitActiveSec=\nOnCalendar=daily\nPersistent=true\n' >"$UNITS/omarchy-bg-rotate.timer.d/interval.conf"
   check "daily drop-in verifies" \
     bash -c "SYSTEMD_UNIT_PATH='$UNITS' systemd-analyze verify --user omarchy-bg-rotate.timer 2>&1 | { ! grep -q 'bad unit file'; }"
+  cp "$REPO_DIR/systemd/omarchy-we.service" "$UNITS/"
+  check "we launcher unit verifies" \
+    bash -c "SYSTEMD_UNIT_PATH='$UNITS' systemd-analyze verify --user omarchy-we.service 2>&1 | { ! grep -q 'bad unit file'; }"
 fi
 
 # ---------------------------------------------------------------------------

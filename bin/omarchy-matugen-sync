@@ -14,6 +14,9 @@ STATE_DIR="$HOME/.local/state/omarchy"
 LAST_FILE="$STATE_DIR/matugen-auto.last"
 THEME_DIR="$HOME/.config/omarchy/themes/matugen-auto"
 CONFIG="$HOME/.config/matugen/omarchy-auto-theme.toml"
+# Steam's workshop content dir for Wallpaper Engine (app id 431960).
+WE_WORKSHOP_DIR="${WE_WORKSHOP_DIR:-$HOME/.local/share/Steam/steamapps/workshop/content/431960}"
+WE_UNIT=omarchy-we.service
 
 # User tuning lives in the settings file, not in this script; installs and
 # upgrades overwrite this file unconditionally. The file is a trusted bash
@@ -80,6 +83,64 @@ Persistent=false"
     || echo "omarchy-matugen-sync: could not enable omarchy-bg-rotate.timer (missing unit? rerun install.sh)" >&2
 }
 
+# Wallpaper Engine integration: `omarchy-auto-theme-we import` materializes
+# workshop previews as we-<id>.<ext> stills in the background collection.
+# The basename is the detection contract: picking one in the native grid
+# means "run the live wallpaper for this id", so the palette renders from
+# the still as usual and omarchy-we.service launches WE on top of it.
+we_detect_id() { # path -> echoes the workshop id, or returns 1
+  [[ ${1##*/} =~ ^we-([0-9]+)\.[A-Za-z0-9]+$ ]] || return 1
+  echo "${BASH_REMATCH[1]}"
+}
+
+# The id we last launched WE for; empty/absent means we stopped it (or never
+# started it). Lets manage_we run on every trigger without restart churn.
+WE_LAST="$STATE_DIR/matugen-auto.we"
+
+stop_we() {
+  if systemctl --user is-active --quiet "$WE_UNIT" 2>/dev/null; then
+    systemctl --user stop "$WE_UNIT" 2>/dev/null \
+      || echo "omarchy-matugen-sync: could not stop $WE_UNIT" >&2
+  elif systemctl --user is-failed --quiet "$WE_UNIT" 2>/dev/null; then
+    # A crashed-out unit is already stopped; clear the failed state so it
+    # does not linger in systemctl status.
+    systemctl --user reset-failed "$WE_UNIT" 2>/dev/null || true
+  fi
+  rm -f "$WE_LAST"
+}
+
+# Reconcile the WE launcher with the current background. Runs on every
+# trigger, BEFORE the fingerprint guard: the palette guard tracks the image,
+# not the launcher, and the two can disagree (unit crashed past its start
+# limit, stopped manually, theme switched away and back to the same file).
+# Auxiliary like rotation: a failure here must never fail the color sync.
+manage_we() { # bg-path
+  local id
+  if id=$(we_detect_id "$1"); then
+    if [[ -d $WE_WORKSHOP_DIR/$id ]]; then
+      # Idempotency: skip only when this exact id is already running.
+      [[ $id == "$(cat "$WE_LAST" 2>/dev/null)" ]] \
+        && systemctl --user is-active --quiet "$WE_UNIT" 2>/dev/null && return 0
+      # A scene that crash-looped into the start limit must relaunch when
+      # re-picked; restart alone refuses then. --no-block: WE takes seconds
+      # to start and this script runs inside a systemd service itself.
+      systemctl --user reset-failed "$WE_UNIT" 2>/dev/null || true
+      if systemctl --user --no-block restart "$WE_UNIT" 2>/dev/null; then
+        printf '%s\n' "$id" >"$WE_LAST"
+      else
+        echo "omarchy-matugen-sync: could not start $WE_UNIT (rerun install.sh?)" >&2
+      fi
+    else
+      # Unsubscribed since import: the still keeps working as a wallpaper.
+      echo "omarchy-matugen-sync: workshop project $id not installed; keeping the static still" >&2
+      stop_we
+    fi
+  else
+    stop_we
+  fi
+  return 0
+}
+
 # --rotate: timer-fired entry point: advance to the next wallpaper. Omarchy's
 # own script drives the awww transition and rewrites current/, which trips the
 # path unit and brings the colors along.
@@ -126,6 +187,20 @@ diagnose() {
   if [[ -n $ROTATE ]]; then
     check "rotation timer active (omarchy-bg-rotate.timer)" systemctl --user is-active omarchy-bg-rotate.timer
   fi
+  # Wallpaper Engine checks: only for setups that opted in (imported stills
+  # exist) or whose current background is a WE entry.
+  local cur_bg we_id
+  cur_bg=$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || true)
+  we_id=$(we_detect_id "${cur_bg:-/}" || true)
+  if [[ -f $HOME/.config/omarchy/backgrounds/matugen-auto/.omarchy-auto-theme-we || -n $we_id ]]; then
+    check "linux-wallpaperengine on PATH"        command -v linux-wallpaperengine
+    check "WE workshop dir: $WE_WORKSHOP_DIR"    test -d "$WE_WORKSHOP_DIR"
+    check "WE launcher unit installed ($WE_UNIT)" test -f "$HOME/.config/systemd/user/$WE_UNIT"
+    if [[ -n $we_id ]]; then
+      check "current bg's workshop project installed ($we_id)" test -d "$WE_WORKSHOP_DIR/$we_id"
+      check "live wallpaper running ($WE_UNIT)"  systemctl --user is-active "$WE_UNIT"
+    fi
+  fi
   echo "active theme: $(cat "$STATE_DIR/current/theme.name" 2>/dev/null || echo '(none)')"
   echo "matugen: $(matugen --version 2>/dev/null || echo '(not found)')"
   echo "settings: mode=$MODE prefer=$PREFER rotate=${ROTATE:-off} ($([[ -f $SETTINGS ]] && echo "$SETTINGS" || echo built-in defaults))"
@@ -147,10 +222,18 @@ if [[ -n $IMAGE ]]; then
   # and the fingerprint guard.
   bg=$IMAGE
 else
-  [[ $slug == matugen-auto ]] || exit 0
+  # Switching to another theme also rewrites the background; a live
+  # wallpaper left running would draw over the new theme's wallpaper.
+  [[ $slug == matugen-auto ]] || { stop_we; exit 0; }
 
   bg=$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || true)
-  [[ -n $bg && -f $bg ]] || exit 0
+  # A dangling background (e.g. an imported still that was since removed)
+  # must not leave a live wallpaper running over whatever comes next.
+  [[ -n $bg && -f $bg ]] || { stop_we; exit 0; }
+
+  # Reconcile the launcher before the palette guard: an unchanged wallpaper
+  # can still need a WE start (crashed unit re-picked, theme switched back).
+  manage_we "$bg"
 
   # Idempotency guard: theme refresh rewrites current/ without changing the
   # wallpaper, which re-triggers the path unit; bail unless the image changed.

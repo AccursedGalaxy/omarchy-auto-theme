@@ -32,17 +32,20 @@ remove_owned() {
 
 systemctl --user disable --now omarchy-matugen.path 2>/dev/null
 systemctl --user disable --now omarchy-bg-rotate.timer 2>/dev/null
+systemctl --user disable --now omarchy-we.service 2>/dev/null
 rm -f "$HOME/.config/systemd/user/omarchy-matugen.path" \
       "$HOME/.config/systemd/user/omarchy-matugen.service" \
       "$HOME/.config/systemd/user/omarchy-bg-rotate.timer" \
-      "$HOME/.config/systemd/user/omarchy-bg-rotate.service"
+      "$HOME/.config/systemd/user/omarchy-bg-rotate.service" \
+      "$HOME/.config/systemd/user/omarchy-we.service"
 # The timer drop-in is generated state (from the ROTATE setting), ours to remove.
 rm -rf "$HOME/.config/systemd/user/omarchy-bg-rotate.timer.d"
 systemctl --user daemon-reload
 
 rm -f "$HOME/.local/bin/omarchy-matugen-sync" \
       "$HOME/.local/bin/omarchy-auto-theme-we" \
-      "$HOME/.local/state/omarchy/matugen-auto.last"
+      "$HOME/.local/state/omarchy/matugen-auto.last" \
+      "$HOME/.local/state/omarchy/matugen-auto.we"
 # Extracted video frames are generated state, ours to remove.
 rm -rf "$HOME/.cache/omarchy-auto-theme"
 
@@ -65,6 +68,14 @@ fi
 # Managed wallpaper collection: remove only the entries our manifest lists;
 # files the user dropped into the dir by hand stay.
 user_bgs="$HOME/.config/omarchy/backgrounds/matugen-auto"
+# Imported Wallpaper Engine stills first (their own manifest, same rules).
+if [[ -f $user_bgs/.omarchy-auto-theme-we ]]; then
+  while IFS= read -r name; do
+    [[ -n $name && $name != */* ]] && rm -f "$user_bgs/$name"
+  done < <(tail -n +2 "$user_bgs/.omarchy-auto-theme-we")
+  rm -f "$user_bgs/.omarchy-auto-theme-we"
+  rmdir "$user_bgs" 2>/dev/null || true
+fi
 if [[ -f $user_bgs/.omarchy-auto-theme-source ]]; then
   while IFS= read -r name; do
     [[ -n $name && $name != */* ]] && rm -f "$user_bgs/$name"
