@@ -1,0 +1,15 @@
+[Unit]
+Description=Watch Wallpaper Engine workshop content for subscription changes
+
+[Path]
+# Steam rewrites the app's workshop manifest the moment the user
+# (un)subscribes, and creates/removes content dirs when it downloads or
+# garbage-collects; either kind of change refreshes the imported background
+# collection so the picker follows the subscription list. 431960 is
+# Wallpaper Engine's app id.
+PathModified=%h/.local/share/Steam/steamapps/workshop/appworkshop_431960.acf
+PathModified=%h/.local/share/Steam/steamapps/workshop/content/431960
+Unit=omarchy-we-import.service
+
+[Install]
+WantedBy=default.target

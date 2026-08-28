@@ -30,6 +30,11 @@ export PATH="$HOME/.local/bin:$OMARCHY_PATH/bin:/usr/local/bin:/usr/bin:$PATH"
 
 # Steam's workshop content dir for Wallpaper Engine (app id 431960).
 WE_WORKSHOP_DIR="${WE_WORKSHOP_DIR:-$HOME/.local/share/Steam/steamapps/workshop/content/431960}"
+# Steam's workshop manifest for the app: its WorkshopItemDetails section
+# tracks the live subscription list, updated the moment the user
+# (un)subscribes - while the content dirs above are garbage-collected
+# lazily and can linger long after an unsubscribe.
+WE_ACF="${WE_ACF:-$HOME/.local/share/Steam/steamapps/workshop/appworkshop_431960.acf}"
 FRAME="$HOME/.cache/omarchy-auto-theme/we-frame.png"
 BG_DIR="$HOME/.config/omarchy/backgrounds/matugen-auto"
 # Manifest of the stills import created: line 1 is the import mode
@@ -37,6 +42,12 @@ BG_DIR="$HOME/.config/omarchy/backgrounds/matugen-auto"
 # touch only listed names; anything else in the dir is the user's.
 WE_MANIFEST="$BG_DIR/.omarchy-auto-theme-we"
 SETTINGS="$HOME/.config/omarchy-auto-theme/settings"
+# Best-still cache: one full-res frame per workshop id, captured by the
+# launcher (--screenshot on first launch) or extracted from a video source
+# at import. Workshop previews are small squares that look blurry and zoomed
+# when cover-cropped onto a real monitor; a cached frame replaces them and
+# survives refreshes, so an upgraded still is never downgraded back.
+SHOTS="$HOME/.cache/omarchy-auto-theme/we-shots"
 
 usage() {
   cat <<EOF
@@ -70,6 +81,16 @@ extract_frame() { # src, out
 }
 
 # --- import: sync workshop projects into the background collection ---------
+# The currently subscribed workshop ids per Steam's manifest; nonzero when
+# the manifest is missing or unparseable (callers then trust the dirs).
+subscribed_ids() {
+  [[ -f $WE_ACF ]] || return 1
+  local ids
+  ids=$(awk '/"WorkshopItemDetails"/{f=1;next} f && /^\t\t"[0-9]+"$/ {gsub(/[\t"]/,""); print}' "$WE_ACF" 2>/dev/null)
+  [[ -n $ids ]] || return 1
+  printf '%s\n' "$ids"
+}
+
 manifest_entries() { # -> stdout: basenames from the manifest (may be empty)
   [[ -f $WE_MANIFEST ]] && tail -n +2 "$WE_MANIFEST" || true
 }
@@ -100,37 +121,58 @@ write_manifest() { # mode, basenames...
 # by do_import from the old manifest) marks names we may overwrite: a
 # pre-existing file we never created is the user's and stays untouched.
 import_one() { # id
-  local id=$1 dir=$WE_WORKSHOP_DIR/$1 src ext dst name
+  local id=$1 dir=$WE_WORKSHOP_DIR/$1 src ext dst name best=$SHOTS/$1.jpg old
   [[ -d $dir ]] || return 1
+  # Video wallpapers: the project's video is full wallpaper resolution while
+  # the preview is a small square; fill the cache from the real source once.
+  # (project.json's type is case-inconsistent in the wild: "Video"/"video".)
+  if [[ ! -f $best && -f $dir/project.json ]] \
+     && command -v jq >/dev/null && command -v ffmpeg >/dev/null; then
+    local ptype pfile
+    ptype=$(jq -r '.type // empty' "$dir/project.json" 2>/dev/null || true)
+    pfile=$(jq -r '.file // empty' "$dir/project.json" 2>/dev/null || true)
+    if [[ ${ptype,,} == video && -n $pfile && -f $dir/$pfile ]]; then
+      mkdir -p "$SHOTS"
+      extract_frame "$dir/$pfile" "$best" || rm -f "$best"
+    fi
+  fi
   src=$(find_preview "$dir") || { note "no preview image in $dir; skipped"; return 1; }
-  case ${src,,} in
-  *.gif)
-    # Animated preview: the grid needs a still, and matugen needs one too.
-    dst=$BG_DIR/we-$id.jpg
-    name=${dst##*/}
-    if [[ -e $dst && -z ${OWNED[$name]:-} ]]; then
-      note "keeping your existing $name (not imported)"
-      return 1
-    fi
-    extract_frame "$src" "$dst" \
+  # Animated previews render once into the cache too: the grid and matugen
+  # both need a still.
+  if [[ ! -f $best && ${src,,} == *.gif ]]; then
+    mkdir -p "$SHOTS"
+    extract_frame "$src" "$best" \
       || { note "ffmpeg could not extract a frame from $src; skipped $id"; return 1; }
-    ;;
-  *)
-    ext=${src##*.}
-    dst=$BG_DIR/we-$id.${ext,,}
-    name=${dst##*/}
-    if [[ -e $dst && -z ${OWNED[$name]:-} && ! $dst -ef $src ]]; then
-      note "keeping your existing $name (not imported)"
-      return 1
+  fi
+  if [[ -f $best ]]; then
+    # An already-imported still is kept under its name and never relinked to
+    # the preview; when the cached frame is newer (fresh extraction, or a
+    # capture that landed while the sync was not looking), it is copied over
+    # the still in place. cp -p equalizes mtimes, so this is one-shot.
+    old=${OLD_BY_ID[$id]:-}
+    if [[ -n $old && -f $BG_DIR/$old ]]; then
+      if [[ $best -nt $BG_DIR/$old ]]; then
+        cp -p "$best" "$BG_DIR/$old" 2>/dev/null \
+          || note "could not upgrade $old from the cached frame"
+      fi
+      printf '%s\n' "$old"
+      return 0
     fi
-    # Hardlink so the grid's selected-highlight (-samefile) matches; copy
-    # across filesystems. Skip when already linked to this preview.
-    # -T: a directory squatting at $dst must fail, not receive the link or
-    # copy inside itself.
-    [[ $dst -ef $src ]] || ln -fT "$src" "$dst" 2>/dev/null || cp -fT "$src" "$dst" 2>/dev/null \
-      || { note "could not write $dst; skipped $id"; return 1; }
-    ;;
-  esac
+    src=$best
+  fi
+  ext=${src##*.}
+  dst=$BG_DIR/we-$id.${ext,,}
+  name=${dst##*/}
+  if [[ -e $dst && -z ${OWNED[$name]:-} && ! $dst -ef $src ]]; then
+    note "keeping your existing $name (not imported)"
+    return 1
+  fi
+  # Hardlink so the grid's selected-highlight (-samefile) matches; copy
+  # across filesystems. Skip when already linked to this source.
+  # -T: a directory squatting at $dst must fail, not receive the link or
+  # copy inside itself.
+  [[ $dst -ef $src ]] || ln -fT "$src" "$dst" 2>/dev/null || cp -fT "$src" "$dst" 2>/dev/null \
+    || { note "could not write $dst; skipped $id"; return 1; }
   # Belt and braces: never report (or manifest) a still that is not a file.
   [[ -s $dst && -f $dst ]] || { note "no usable still at $dst; skipped $id"; return 1; }
   printf '%s\n' "$name"
@@ -150,12 +192,15 @@ do_import() {
   done
 
   local old_mode= old_entries=()
-  declare -A OWNED=()
+  declare -A OWNED=() OLD_BY_ID=()
   if [[ -f $WE_MANIFEST ]]; then
     old_mode=$(head -n1 "$WE_MANIFEST")
     mapfile -t old_entries < <(manifest_entries)
     local e
-    for e in ${old_entries[@]+"${old_entries[@]}"}; do OWNED[$e]=1; done
+    for e in ${old_entries[@]+"${old_entries[@]}"}; do
+      OWNED[$e]=1
+      [[ $e =~ ^we-([0-9]+)\. ]] && OLD_BY_ID[${BASH_REMATCH[1]}]=$e
+    done
   fi
 
   # Explicitly requested ids must exist, whatever the mode; a refresh may
@@ -176,6 +221,7 @@ do_import() {
       # Removing the collection is the opt-out: without stills the launcher
       # has nothing to serve, and a running instance must not linger.
       systemctl --user disable --now omarchy-we.service 2>/dev/null || true
+      systemctl --user disable --now omarchy-we-import.path 2>/dev/null || true
       rm -f "$HOME/.local/state/omarchy/matugen-auto.we"
       note "removed all imported Wallpaper Engine stills"
     else
@@ -217,12 +263,27 @@ do_import() {
   if [[ $mode == all ]]; then
     [[ -d $WE_WORKSHOP_DIR ]] \
       || fail "workshop dir not found: $WE_WORKSHOP_DIR (set WE_WORKSHOP_DIR, or subscribe to wallpapers in Steam first)"
-    local d
+    # Steam's manifest is the source of truth when it is readable: content
+    # dirs of unsubscribed wallpapers linger until Steam garbage-collects
+    # them and must not stay in the picker. Only ever an intersection -
+    # importing needs the files on disk either way.
+    local subs=
+    subs=$(subscribed_ids) || subs=
+    declare -A SUBSCRIBED=()
+    local s
+    for s in $subs; do SUBSCRIBED[$s]=1; done
+    local d skipped=0
     for d in "$WE_WORKSHOP_DIR"/*/; do
       [[ -d $d ]] || continue
       d=${d%/}
-      [[ ${d##*/} =~ ^[0-9]+$ ]] && targets+=("${d##*/}")
+      [[ ${d##*/} =~ ^[0-9]+$ ]] || continue
+      if [[ -n $subs && -z ${SUBSCRIBED[${d##*/}]:-} ]]; then
+        skipped=$((skipped + 1))
+        continue
+      fi
+      targets+=("${d##*/}")
     done
+    ((skipped > 0)) && note "skipped $skipped unsubscribed project$( ((skipped == 1)) || echo s) still on disk"
     [[ ${#targets[@]} -gt 0 ]] || fail "no workshop projects found in $WE_WORKSHOP_DIR"
   else
     # Previously imported ids (from manifest basenames) plus new ones.
@@ -276,7 +337,24 @@ do_import() {
     else
       note "omarchy-we.service not installed; rerun install.sh, then import again"
     fi
+    # Keep the collection following the Steam subscription list: watch the
+    # workshop dir and re-refresh on subscribe/unsubscribe.
+    if [[ -f $HOME/.config/systemd/user/omarchy-we-import.path ]]; then
+      systemctl --user enable --now omarchy-we-import.path 2>/dev/null \
+        || note "could not enable omarchy-we-import.path; new subscriptions need a manual import"
+    fi
     note "pick them in the wallpaper menu (SUPER+CTRL+SPACE) with the matugen-auto theme active"
+  fi
+
+  # Warm the native picker: generate any missing thumbnails now (the
+  # switcher otherwise does it synchronously on first open, which stalls
+  # the grid for a large collection) and hand the rows to the shell so the
+  # first open after an import is instant. Same dir pair, same order as
+  # omarchy-theme-bg-switcher, or the rows cache key will not match.
+  if command -v omarchy-menu-images >/dev/null; then
+    local theme_bgs="$HOME/.local/state/omarchy/current/theme/backgrounds"
+    omarchy-menu-images --cache-only "$theme_bgs" "$BG_DIR" >/dev/null 2>&1 || true
+    omarchy-menu-images --preload "$theme_bgs" "$BG_DIR" >/dev/null 2>&1 || true
   fi
   return 0
 }
@@ -331,6 +409,14 @@ do_exec_current() {
     args+=(--screen-root "$screen" --bg "$id")
   done
   [[ ${#args[@]} -gt 0 ]] || fail "no outputs found; set WE_SCREENS in $SETTINGS"
+  if [[ ! -f $SHOTS/$id.jpg ]]; then
+    # First launch of this wallpaper: capture one full-res frame a few
+    # seconds in (past the fade-in), so the sync script can upgrade the
+    # low-res preview still. WE keeps rendering after the capture
+    # (verified against r627 on 2026-08-28).
+    mkdir -p "$SHOTS"
+    args+=(--screenshot "$SHOTS/$id.jpg" --screenshot-delay 90)
+  fi
   read -ra flags <<<"$WE_FLAGS"
   exec linux-wallpaperengine ${flags[@]+"${flags[@]}"} "${args[@]}"
 }

@@ -33,11 +33,14 @@ remove_owned() {
 systemctl --user disable --now omarchy-matugen.path 2>/dev/null
 systemctl --user disable --now omarchy-bg-rotate.timer 2>/dev/null
 systemctl --user disable --now omarchy-we.service 2>/dev/null
+systemctl --user disable --now omarchy-we-import.path 2>/dev/null
 rm -f "$HOME/.config/systemd/user/omarchy-matugen.path" \
       "$HOME/.config/systemd/user/omarchy-matugen.service" \
       "$HOME/.config/systemd/user/omarchy-bg-rotate.timer" \
       "$HOME/.config/systemd/user/omarchy-bg-rotate.service" \
-      "$HOME/.config/systemd/user/omarchy-we.service"
+      "$HOME/.config/systemd/user/omarchy-we.service" \
+      "$HOME/.config/systemd/user/omarchy-we-import.path" \
+      "$HOME/.config/systemd/user/omarchy-we-import.service"
 # The timer drop-in is generated state (from the ROTATE setting), ours to remove.
 rm -rf "$HOME/.config/systemd/user/omarchy-bg-rotate.timer.d"
 systemctl --user daemon-reload

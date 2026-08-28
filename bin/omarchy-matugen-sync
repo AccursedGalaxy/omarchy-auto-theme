@@ -17,6 +17,9 @@ CONFIG="$HOME/.config/matugen/omarchy-auto-theme.toml"
 # Steam's workshop content dir for Wallpaper Engine (app id 431960).
 WE_WORKSHOP_DIR="${WE_WORKSHOP_DIR:-$HOME/.local/share/Steam/steamapps/workshop/content/431960}"
 WE_UNIT=omarchy-we.service
+# Full-res frames the launcher captures on first launch (--screenshot); the
+# path unit watches this dir, so a landing capture re-runs this script.
+WE_SHOTS="$HOME/.cache/omarchy-auto-theme/we-shots"
 
 # User tuning lives in the settings file, not in this script; installs and
 # upgrades overwrite this file unconditionally. The file is a trusted bash
@@ -118,6 +121,15 @@ manage_we() { # bg-path
   local id
   if id=$(we_detect_id "$1"); then
     if [[ -d $WE_WORKSHOP_DIR/$id ]]; then
+      # A landed capture upgrades the low-res preview still in place (same
+      # path keeps the grid selection and the bg symlink valid); the
+      # changed fingerprint then re-renders the palette from the real
+      # frame. cp -p equalizes mtimes, so -nt makes this one-shot per
+      # capture and convergent if the file was still being written.
+      if [[ -f $WE_SHOTS/$id.jpg && $WE_SHOTS/$id.jpg -nt $1 ]]; then
+        cp -p "$WE_SHOTS/$id.jpg" "$1" 2>/dev/null \
+          && echo "omarchy-matugen-sync: upgraded the still for $id from a live capture" >&2
+      fi
       # Idempotency: skip only when this exact id is already running.
       [[ $id == "$(cat "$WE_LAST" 2>/dev/null)" ]] \
         && systemctl --user is-active --quiet "$WE_UNIT" 2>/dev/null && return 0
@@ -127,6 +139,17 @@ manage_we() { # bg-path
       systemctl --user reset-failed "$WE_UNIT" 2>/dev/null || true
       if systemctl --user --no-block restart "$WE_UNIT" 2>/dev/null; then
         printf '%s\n' "$id" >"$WE_LAST"
+        # First launch of this wallpaper: WE captures its frame within a
+        # few seconds, often while THIS run is still active - and path
+        # units swallow events that arrive during an active service, so
+        # the one-shot capture would be lost. Schedule a single follow-up
+        # run to pick it up. (Any later trigger also heals a missed one:
+        # the -nt upgrade above runs on every sync.)
+        if [[ ! -f $WE_SHOTS/$id.jpg ]] && command -v systemd-run >/dev/null; then
+          systemd-run --user --collect --unit omarchy-we-followup \
+            --on-active=15 --timer-property=AccuracySec=2s \
+            systemctl --user start omarchy-matugen.service 2>/dev/null || true
+        fi
       else
         echo "omarchy-matugen-sync: could not start $WE_UNIT (rerun install.sh?)" >&2
       fi
@@ -196,6 +219,8 @@ diagnose() {
     check "linux-wallpaperengine on PATH"        command -v linux-wallpaperengine
     check "WE workshop dir: $WE_WORKSHOP_DIR"    test -d "$WE_WORKSHOP_DIR"
     check "WE launcher unit installed ($WE_UNIT)" test -f "$HOME/.config/systemd/user/$WE_UNIT"
+    check "subscription watcher active (omarchy-we-import.path)" \
+      systemctl --user is-active omarchy-we-import.path
     if [[ -n $we_id ]]; then
       check "current bg's workshop project installed ($we_id)" test -d "$WE_WORKSHOP_DIR/$we_id"
       check "live wallpaper running ($WE_UNIT)"  systemctl --user is-active "$WE_UNIT"

@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the imported Wallpaper Engine background collection
+ConditionPathExists=%h/.local/bin/omarchy-auto-theme-we
+
+[Service]
+Type=oneshot
+# --refresh exits immediately when the user never imported; otherwise it
+# syncs per the recorded mode (all/selected) and only touches entries the
+# manifest lists.
+ExecStart=%h/.local/bin/omarchy-auto-theme-we import --refresh

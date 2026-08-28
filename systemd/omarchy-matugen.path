@@ -3,6 +3,9 @@ Description=Watch omarchy background state for matugen-auto regeneration
 
 [Path]
 PathModified=%h/.local/state/omarchy/current
+# Wallpaper Engine captures full-res frames here on first launch; a landing
+# capture must re-run the sync so the still and palette upgrade.
+PathModified=%h/.cache/omarchy-auto-theme/we-shots
 Unit=omarchy-matugen.service
 
 [Install]

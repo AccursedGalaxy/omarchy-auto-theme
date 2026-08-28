@@ -310,14 +310,21 @@ colors_after=$(stat -c '%.Y' "$THEME_DIR/colors.toml" 2>/dev/null || echo missin
 # --- systemd watcher -------------------------------------------------------
 say "Installing systemd user units"
 mkdir -p "$HOME/.config/systemd/user"
+# The path unit watches this dir for Wallpaper Engine frame captures; it
+# must exist when the watch is set up.
+mkdir -p "$HOME/.cache/omarchy-auto-theme/we-shots"
 # omarchy-we.service is shipped but never enabled here: WE integration is
 # opt-in via `omarchy-auto-theme-we import`, which enables it.
 cp "$REPO_DIR/systemd/omarchy-matugen.path" "$REPO_DIR/systemd/omarchy-matugen.service" \
   "$REPO_DIR/systemd/omarchy-bg-rotate.timer" "$REPO_DIR/systemd/omarchy-bg-rotate.service" \
   "$REPO_DIR/systemd/omarchy-we.service" \
+  "$REPO_DIR/systemd/omarchy-we-import.path" "$REPO_DIR/systemd/omarchy-we-import.service" \
   "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
 systemctl --user enable --now omarchy-matugen.path
+# enable --now does not restart an already-running unit; a restart applies
+# watch-path changes from upgraded unit files.
+systemctl --user restart omarchy-matugen.path
 
 # One-shot service run: proves the sync script starts in the systemd
 # environment (PATH, unit file, script location) rather than just in this
