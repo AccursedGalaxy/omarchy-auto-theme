@@ -1,6 +1,6 @@
 # omarchy-auto-theme
 
-Automatic wallpaper-based colors for [Omarchy](https://omarchy.org) 4.0 (Quattro) on Hyprland.
+Automatic wallpaper-based dynamic theming for [Omarchy](https://omarchy.org) 4.0 (Quattro) on Hyprland.
 
 ![Switching wallpapers recolors the terminal and Neovim](assets/demo.gif)
 
@@ -8,7 +8,7 @@ Change your wallpaper and the rest of the desktop follows.
 [matugen](https://github.com/InioX/matugen) creates a Material You palette from the image.
 The project passes that palette to Omarchy's theme engine, which updates the whole Hyprland desktop: bar, notifications, lock screen, terminals, Neovim, btop, Claude Code, and other supported apps.
 
-It works like pywal or wallust, but uses Omarchy's existing app integrations. It also leaves packaged Omarchy files untouched.
+It works like pywal or wallust, but nothing here is a standalone colorscheme. The palette renders straight into Omarchy's own theme files, so existing app integrations keep working and packaged Omarchy files stay untouched.
 
 ## Quick start
 
@@ -65,6 +65,32 @@ supported apps reload with the new palette
 ```
 
 Everything is installed under your home directory, so `omarchy update` will not overwrite it.
+
+## How does it compare?
+
+### tema
+
+[tema](https://github.com/bjarneo/tema) is an interactive theme generator. You choose a wallpaper and mode, then apply the result. It is a good fit for creating a theme once.
+
+omarchy-auto-theme is a background pipeline. There is nothing to open after installation. A systemd path unit detects wallpaper changes and regenerates the active theme.
+
+### omagen
+
+[omagen](https://github.com/prettyletto/omagen) is an image-to-theme studio that ships as an Omarchy plugin. You pick an image, browse six palette directions, preview them, and save the result as a permanent named theme. Like tema, it is built for making a theme once, by hand.
+
+omarchy-auto-theme has no interface at all. It regenerates the theme in the background on every wallpaper change.
+
+### omarchy-matugen
+
+[omarchy-matugen](https://github.com/jaidev7823/omarchy-matugen) also runs matugen automatically. It shims the `swaybg` binary so wallpaper changes route through swww and matugen.
+
+This project replaces no Omarchy binaries. A systemd path unit watches Omarchy's wallpaper state file and renders into a normal Omarchy theme, so the stock wallpaper flow keeps working unchanged.
+
+### pywal and wallust
+
+[pywal](https://github.com/dylanaraps/pywal) and [wallust](https://codeberg.org/explosion-mental/wallust) provide general-purpose wallpaper colors. You usually need to connect each application yourself.
+
+This project feeds Omarchy's own theme engine instead. Existing Omarchy integrations continue to work and remain maintained through Omarchy updates. It also uses matugen's Material You color generation rather than direct dominant-color extraction.
 
 ## Configure palette generation
 
@@ -180,6 +206,28 @@ Keep these rules in mind:
 - **Prefer indexed ANSI colors for shell output.** Values such as `38;5;N` and `fg=4` follow the terminal palette. Unlike fixed hex colors, they can recolor existing scrollback after a theme change, including inside tmux.
 - **Do not broadcast reload signals to shells.** Commands such as `pkill -USR2 zsh` can kill processes without a signal handler, including shells waiting on `tmux attach`. When possible, make an app watch its generated file instead.
 
+## FAQ
+
+### How do I get wallpaper-based themes on Omarchy?
+
+Install this project and activate the `matugen-auto` theme (see Quick start). After that, every wallpaper change regenerates the palette and restyles the desktop, whether the change comes from the SUPER + CTRL + SPACE switcher, the rotation timer, or the CLI.
+
+### Does `omarchy update` break it?
+
+No. Everything lives under your home directory, and packaged Omarchy files are never modified.
+
+### How is this different from pywal or wallust?
+
+pywal and wallust generate standalone colors that you wire into each application yourself. This project renders into Omarchy's theme format, so the integrations Omarchy already maintains (bar, lock screen, terminals, Neovim, btop) pick up the colors with no extra wiring. The palette comes from matugen's Material You generation rather than dominant-color extraction.
+
+### Does it support light mode?
+
+Yes. Set `MODE=light` in `~/.config/omarchy-auto-theme/settings`.
+
+### Can it rotate wallpapers on a schedule?
+
+Yes. Set `ROTATE=daily` or an interval such as `ROTATE=30m`. A systemd timer advances the wallpaper and the colors follow.
+
 ## Troubleshooting
 
 Start with the built-in diagnostic:
@@ -205,20 +253,6 @@ The sync command exits quietly when:
 - the wallpaper has not changed since the previous run.
 
 Wallpaper changes are detected from the file path, size, and nanosecond modification time. If colors do not update, `--diagnose` reports which guard stopped the sync.
-
-## How does it compare?
-
-### tema
-
-[tema](https://github.com/bjarneo/tema) is an interactive theme generator. You choose a wallpaper and mode, then apply the result. It is a good fit for creating a theme once.
-
-omarchy-auto-theme is a background pipeline. There is nothing to open after installation. A systemd path unit detects wallpaper changes and regenerates the active theme.
-
-### pywal and wallust
-
-[pywal](https://github.com/dylanaraps/pywal) and [wallust](https://codeberg.org/explosion-mental/wallust) provide general-purpose wallpaper colors. You usually need to connect each application yourself.
-
-This project feeds Omarchy's own theme engine instead. Existing Omarchy integrations continue to work and remain maintained through Omarchy updates. It also uses matugen's Material You color generation rather than direct dominant-color extraction.
 
 ## Uninstall
 
