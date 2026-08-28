@@ -48,11 +48,16 @@ SETTINGS="$HOME/.config/omarchy-auto-theme/settings"
 # when cover-cropped onto a real monitor; a cached frame replaces them and
 # survives refreshes, so an upgraded still is never downgraded back.
 SHOTS="$HOME/.cache/omarchy-auto-theme/we-shots"
+# Matches the linux-wallpaperengine binary on a command line (any path, any
+# args) and nothing else. The kernel truncates process names to 15 chars
+# ("linux-wallpaper"), so pgrep/pkill -x can never match the full name.
+WE_PROC='(^|/)linux-wallpaperengine( |$)'
 
 usage() {
   cat <<EOF
 Usage: omarchy-auto-theme-we <workshop-id|project-dir|image|video> [-- command...]
        omarchy-auto-theme-we import [--remove|--refresh] [id...]
+       omarchy-auto-theme-we capture
        omarchy-auto-theme-we --exec-current
 EOF
 }
@@ -137,12 +142,27 @@ import_one() { # id
     fi
   fi
   src=$(find_preview "$dir") || { note "no preview image in $dir; skipped"; return 1; }
-  # Animated previews render once into the cache too: the grid and matugen
-  # both need a still.
+  # Animated previews still need a frame extracted, but NOT into the cache:
+  # a preview-derived frame is as small as the preview, and a cache entry
+  # would block the full-res live capture forever. Extract straight to the
+  # destination; an owned still already there is kept as-is (it may carry
+  # an upgraded capture).
   if [[ ! -f $best && ${src,,} == *.gif ]]; then
-    mkdir -p "$SHOTS"
-    extract_frame "$src" "$best" \
+    dst=$BG_DIR/we-$id.jpg
+    name=${dst##*/}
+    if [[ -n ${OWNED[$name]:-} && -f $dst ]]; then
+      printf '%s\n' "$name"
+      return 0
+    fi
+    if [[ -e $dst && -z ${OWNED[$name]:-} ]]; then
+      note "keeping your existing $name (not imported)"
+      return 1
+    fi
+    extract_frame "$src" "$dst" \
       || { note "ffmpeg could not extract a frame from $src; skipped $id"; return 1; }
+    [[ -s $dst && -f $dst ]] || { note "no usable still at $dst; skipped $id"; return 1; }
+    printf '%s\n' "$name"
+    return 0
   fi
   if [[ -f $best ]]; then
     # An already-imported still is kept under its name and never relinked to
@@ -344,6 +364,14 @@ do_import() {
         || note "could not enable omarchy-we-import.path; new subscriptions need a manual import"
     fi
     note "pick them in the wallpaper menu (SUPER+CTRL+SPACE) with the matugen-auto theme active"
+    # Scenes only get a full-res still after their first launch; offer the
+    # warm pass when any imported wallpaper is still waiting for a frame.
+    local missing=0 n
+    for n in ${new_entries[@]+"${new_entries[@]}"}; do
+      [[ $n =~ ^we-([0-9]+)\. && ! -f $SHOTS/${BASH_REMATCH[1]}.jpg ]] && missing=$((missing + 1))
+    done
+    ((missing > 0)) \
+      && note "optional: 'omarchy-auto-theme-we capture' pre-renders full-res frames for $missing wallpaper$( ((missing == 1)) || echo s) (first picks look sharp then)"
   fi
 
   # Warm the native picker: generate any missing thumbnails now (the
@@ -356,6 +384,95 @@ do_import() {
     omarchy-menu-images --cache-only "$theme_bgs" "$BG_DIR" >/dev/null 2>&1 || true
     omarchy-menu-images --preload "$theme_bgs" "$BG_DIR" >/dev/null 2>&1 || true
   fi
+  return 0
+}
+
+# --- capture: pre-render full-res frames for every imported wallpaper ------
+# Scene wallpapers can only get a real frame by running; without this, the
+# first pick of each scene starts from the low-res preview (later picks are
+# sharp, since the first launch captures). One warm pass makes even first
+# picks sharp.
+do_capture() {
+  [[ $# -eq 0 ]] || { usage >&2; exit 2; }
+  [[ -f $WE_MANIFEST ]] || fail "nothing imported yet; run: omarchy-auto-theme-we import"
+  command -v linux-wallpaperengine >/dev/null || fail "linux-wallpaperengine not found on PATH"
+  local WE_SCREENS= WE_FLAGS= WE_LAUNCH= screen
+  # shellcheck source=/dev/null
+  [[ -f $SETTINGS ]] && source "$SETTINGS"
+  screen=${WE_SCREENS%% *}
+  if [[ -z $screen ]]; then
+    command -v hyprctl >/dev/null && command -v jq >/dev/null \
+      || fail "hyprctl and jq are needed to pick an output; set WE_SCREENS in $SETTINGS"
+    screen=$(hyprctl monitors -j | jq -r '.[0].name // empty')
+  fi
+  [[ -n $screen ]] || fail "no output found; set WE_SCREENS in $SETTINGS"
+
+  local todo=() name id
+  while IFS= read -r name; do
+    [[ $name =~ ^we-([0-9]+)\. ]] || continue
+    id=${BASH_REMATCH[1]}
+    [[ -f $SHOTS/$id.jpg ]] && continue
+    [[ -d $WE_WORKSHOP_DIR/$id ]] || continue
+    todo+=("$id")
+  done < <(manifest_entries)
+  if [[ ${#todo[@]} -eq 0 ]]; then
+    note "all imported wallpapers already have full-res frames"
+    return 0
+  fi
+
+  # The warm pass drives the screen itself; the managed instance would
+  # fight it for the layer surface.
+  local was_active=
+  if systemctl --user is-active --quiet omarchy-we.service 2>/dev/null; then
+    was_active=1
+    systemctl --user stop omarchy-we.service 2>/dev/null || true
+  fi
+  mkdir -p "$SHOTS"
+  note "capturing ${#todo[@]} wallpaper$( ((${#todo[@]} == 1)) || echo s), ~10s each; the desktop background will cycle"
+  local pid shot
+  for id in "${todo[@]}"; do
+    shot=$SHOTS/$id.jpg
+    linux-wallpaperengine --screen-root "$screen" --bg "$id" \
+      --silent --fps 30 --disable-mouse \
+      --screenshot "$shot" --screenshot-delay 90 >/dev/null 2>&1 &
+    pid=$!
+    # An incompatible scene can crash WE outright; without disown, bash
+    # reports the signal ("Segmentation fault") into our output.
+    disown "$pid" 2>/dev/null || true
+    # Wait for the capture to appear AND stop growing: killing WE the
+    # moment the file exists races its write and leaves a torn JPEG.
+    local prev=-1 size
+    for _ in {1..40}; do
+      size=$(stat -c %s "$shot" 2>/dev/null || echo -1)
+      [[ $size -gt 0 && $size == "$prev" ]] && break
+      prev=$size
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.5
+    done
+    kill "$pid" 2>/dev/null || true
+    # CEF helpers can outlive the parent; wait for the layer surface to be
+    # released before the next launch. (No wait: the pid is disowned.)
+    if pkill -f "$WE_PROC" 2>/dev/null; then
+      for _ in {1..50}; do
+        pgrep -f "$WE_PROC" >/dev/null 2>&1 || break
+        sleep 0.1
+      done
+    fi
+    if [[ -s $shot ]]; then
+      note "captured $id"
+    else
+      rm -f "$shot"
+      note "no frame for $id (the wallpaper may not render on this machine)"
+    fi
+  done
+  if [[ -n $was_active ]]; then
+    systemctl --user start omarchy-we.service 2>/dev/null || true
+  fi
+
+  # Apply the new frames to the imported stills; the sync run re-renders
+  # the palette if the current background was among them.
+  do_import --refresh
+  systemctl --user --no-block start omarchy-matugen.service 2>/dev/null || true
   return 0
 }
 
@@ -430,6 +547,11 @@ import)
   do_import "$@"
   exit 0
   ;;
+capture)
+  shift
+  do_capture "$@"
+  exit 0
+  ;;
 --exec-current)
   [[ $# -eq 1 ]] || { usage >&2; exit 2; }
   do_exec_current
@@ -489,16 +611,11 @@ omarchy-matugen-sync --image "$img"
 
 if [[ ${#launch[@]} -gt 0 ]]; then
   # Wallpaper Engine on Linux has no "switch" operation: changing the live
-  # wallpaper is stop + relaunch. The kernel truncates process names to 15
-  # chars ("linux-wallpaper"), so -x can never match the full binary name;
-  # match the command line instead, anchored so only the binary itself (any
-  # path, any args) is hit and never an unrelated process mentioning it.
-  # SIGTERM is asynchronous; wait for the old instance to release its
-  # layer-shell surface before starting the replacement.
-  we_proc='(^|/)linux-wallpaperengine( |$)'
-  if pkill -f "$we_proc" 2>/dev/null; then
+  # wallpaper is stop + relaunch. SIGTERM is asynchronous; wait for the old
+  # instance to release its layer-shell surface before the replacement.
+  if pkill -f "$WE_PROC" 2>/dev/null; then
     for _ in {1..50}; do
-      pgrep -f "$we_proc" >/dev/null 2>&1 || break
+      pgrep -f "$WE_PROC" >/dev/null 2>&1 || break
       sleep 0.1
     done
   fi

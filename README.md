@@ -209,6 +209,14 @@ This places a still image of every workshop wallpaper you are subscribed to into
 
 The stills start out as the small workshop previews, then upgrade themselves to full monitor resolution: video wallpapers get a frame from the actual video at import, and scene wallpapers get a frame captured from the running wallpaper the first time you pick them. The palette follows the upgraded frame, so the colors match what is actually on screen. Import also pre-generates the picker's thumbnails, so the grid opens fast even with a large collection.
 
+To skip the one low-res first pick per scene, run the warm pass once after importing:
+
+```bash
+omarchy-auto-theme-we capture
+```
+
+It briefly runs each wallpaper that has no frame yet (the desktop background cycles for a few seconds per wallpaper) and stores the full-res captures, so every pick looks sharp from the start.
+
 The collection follows your Steam subscriptions on its own: subscribing or unsubscribing in Steam updates the picker within seconds, even before Steam gets around to deleting the downloaded files. Rerunning `import` (or `./install.sh`) forces the same refresh manually. `import 123456789` imports selected projects only, and `import --remove` deletes everything the import created while leaving your own files alone. Nothing WE-related activates unless you run `import`.
 
 Three optional knobs in `~/.config/omarchy-auto-theme/settings`:

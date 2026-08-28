@@ -88,6 +88,14 @@ EOF
 cat >"$MOCKS/linux-wallpaperengine" <<'EOF'
 #!/bin/bash
 echo "linux-wallpaperengine $*" >>"$MOCK_LOG"
+# Honor --screenshot like the real binary: write a frame to the given path.
+prev= out=
+for a in "$@"; do [[ $prev == --screenshot ]] && out=$a; prev=$a; done
+if [[ -n $out && ${MOCK_WE_NOSHOT:-} != 1 ]]; then
+  mkdir -p "$(dirname "$out")"
+  printf 'captured' >"$out"
+fi
+exit 0
 EOF
 cat >"$MOCKS/omarchy-menu-images" <<'EOF'
 #!/bin/bash
@@ -116,7 +124,7 @@ fresh_home() { # name -> sets HOME and MOCK_LOG
   : >"$MOCK_LOG"
   unset MOCK_MATUGEN_FAIL MOCK_MATUGEN_NOOP MOCK_SYSTEMCTL_FAIL MOCK_REFRESH_FAIL \
         MOCK_TIMER_ENABLED MOCK_TIMER_ACTIVE MOCK_FFMPEG_FAIL MOCK_WE_ACTIVE \
-        MOCK_WE_FAILED WE_WORKSHOP_DIR WE_ACF
+        MOCK_WE_FAILED MOCK_WE_NOSHOT WE_WORKSHOP_DIR WE_ACF
 }
 
 CONFIG_REL=".config/matugen/omarchy-auto-theme.toml"
@@ -719,6 +727,8 @@ check "import exits 0" "$WE" import
 check "still preview hardlinked" bash -c "[[ '$UB/we-111.jpg' -ef '$WE_WORKSHOP_DIR/111/preview.jpg' ]]"
 check "animated preview extracted via ffmpeg" \
   bash -c "grep -q ffmpeg '$MOCK_LOG' && test -f '$UB/we-222.jpg'"
+check "gif frame not cached (would block the full-res capture)" \
+  test ! -e "$HOME/.cache/omarchy-auto-theme/we-shots/222.jpg"
 check "png preview keeps its extension" test -f "$UB/we-333.png"
 check "non-numeric dirs skipped" bash -c "! ls '$UB'/we-not* >/dev/null 2>&1"
 check "manifest records mode all" bash -c "head -n1 '$UB/.omarchy-auto-theme-we' | grep -qx all"
@@ -929,6 +939,26 @@ echo "test: import applies a cache frame that landed while sync was not looking"
 printf 'fullres444' >"$SHOTS_DIR/444.jpg"
 check "import upgrades the still from the newer cached frame" \
   bash -c "'$WE' import >/dev/null 2>&1 && [[ \$(cat '$UB/we-444.jpg') == fullres444 ]]"
+
+echo "test: capture pre-renders frames for uncaptured wallpapers"
+export MOCK_WE_ACTIVE=0   # managed instance currently running
+: >"$MOCK_LOG"
+check "capture exits 0" "$WE" capture
+check "managed instance stopped for the warm pass" grep -q "stop omarchy-we.service" "$MOCK_LOG"
+check "frame captured for the uncaptured wallpaper" test -s "$SHOTS_DIR/222.jpg"
+check "already-captured wallpapers skipped" bash -c "! grep -q -- '--bg 111' '$MOCK_LOG'"
+check "capture launches on the first monitor" grep -q -- "--screen-root DP-1 --bg 222" "$MOCK_LOG"
+check "managed instance restarted afterwards" grep -qE " start omarchy-we.service" "$MOCK_LOG"
+check "captured frame applied to the still" bash -c "[[ \$(cat '$UB/we-222.jpg') == captured ]]"
+unset MOCK_WE_ACTIVE
+check "second capture: nothing to do" \
+  bash -c "'$WE' capture 2>&1 | grep -q 'already have full-res frames'"
+export MOCK_WE_NOSHOT=1
+rm -f "$SHOTS_DIR/222.jpg"
+check "failed capture: exits 0, no stale empty frame" \
+  bash -c "'$WE' capture >/dev/null 2>&1 && [[ ! -e '$SHOTS_DIR/222.jpg' ]]"
+unset MOCK_WE_NOSHOT
+"$WE" capture >/dev/null 2>&1   # restore the frame for the tests below
 
 echo "test: --diagnose covers the WE pipeline"
 export MOCK_WE_ACTIVE=0
