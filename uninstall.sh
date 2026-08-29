@@ -48,6 +48,7 @@ systemctl --user daemon-reload
 rm -f "$HOME/.local/bin/omarchy-matugen-sync" \
       "$HOME/.local/bin/omarchy-auto-theme-we" \
       "$HOME/.local/state/omarchy/matugen-auto.last" \
+      "$HOME/.local/state/omarchy/matugen-auto.skip-once" \
       "$HOME/.local/state/omarchy/matugen-auto.we"
 # Extracted video frames are generated state, ours to remove.
 rm -rf "$HOME/.cache/omarchy-auto-theme"

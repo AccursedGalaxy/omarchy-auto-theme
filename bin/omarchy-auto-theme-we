@@ -206,6 +206,21 @@ import_one() { # id
   printf '%s\n' "$name"
 }
 
+# If a removal deleted the wallpaper on screen, advance to the next one so
+# the lock screen and reboot wallpaper stay valid; the sync run this
+# triggers also stops a live wallpaper still drawing over it.
+heal_current_bg() {
+  local bg
+  bg=$(readlink "$HOME/.local/state/omarchy/current/background" 2>/dev/null) || return 0
+  [[ ${bg##*/} == we-* && ! -e $bg ]] || return 0
+  if command -v omarchy-theme-bg-next >/dev/null; then
+    omarchy-theme-bg-next 2>/dev/null \
+      || note "could not advance the wallpaper; pick a new one (SUPER+CTRL+SPACE)"
+  else
+    note "the current background was removed; pick a new one (SUPER+CTRL+SPACE)"
+  fi
+}
+
 do_import() {
   local remove= refresh=
   case ${1:-} in
@@ -266,6 +281,7 @@ do_import() {
       write_manifest selected ${kept[@]+"${kept[@]}"}
       note "removed ${#ids[@]} entr$( ((${#ids[@]} == 1)) && echo y || echo ies); ${#kept[@]} kept"
     fi
+    heal_current_bg
     return 0
   fi
 
@@ -329,15 +345,18 @@ do_import() {
   fi
 
   mkdir -p "$BG_DIR"
-  local new_entries=() id name
+  local new_entries=() failed=() id name
   for id in "${targets[@]}"; do
     if name=$(import_one "$id"); then
       new_entries+=("$name")
     elif [[ ${#ids[@]} -gt 0 ]]; then
-      # Explicitly requested ids must exist; silent skips are for refreshes.
+      # An explicitly typed id must be reported; silent skips are for
+      # refreshes. Collected, not failed on the spot: the manifest below
+      # must still record the successes, or they would be orphaned as
+      # unowned files that block every retry.
       local wanted
       for wanted in "${ids[@]}"; do
-        [[ $wanted == "$id" ]] && fail "workshop project not installed: $id"
+        [[ $wanted == "$id" ]] && failed+=("$id") && break
       done
     fi
   done
@@ -391,6 +410,9 @@ do_import() {
     local theme_bgs="$HOME/.local/state/omarchy/current/theme/backgrounds"
     omarchy-menu-images --cache-only "$theme_bgs" "$BG_DIR" >/dev/null 2>&1 || true
     omarchy-menu-images --preload "$theme_bgs" "$BG_DIR" >/dev/null 2>&1 || true
+  fi
+  if [[ ${#failed[@]} -gt 0 ]]; then
+    fail "no usable still for workshop project$( ((${#failed[@]} == 1)) || echo s): ${failed[*]} (details above; the rest were imported)"
   fi
   return 0
 }

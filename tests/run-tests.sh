@@ -35,10 +35,10 @@ EOF
 cat >"$MOCKS/omarchy-theme-refresh" <<'EOF'
 #!/bin/bash
 echo "omarchy-theme-refresh" >>"$MOCK_LOG"
-# Snapshot the fingerprint file as it stands when the refresh fires, so tests
-# can assert commit-before-refresh ordering (the real refresh re-triggers the
-# path unit mid-run).
-cp "$HOME/.local/state/omarchy/matugen-auto.last" "$HOME/.last-at-refresh" 2>/dev/null || true
+# Snapshot the loopback-suppression file as it stands when the refresh fires,
+# so tests can assert arm-before-refresh ordering (the real refresh
+# re-triggers the path unit mid-run).
+cp "$HOME/.local/state/omarchy/matugen-auto.skip-once" "$HOME/.skip-at-refresh" 2>/dev/null || true
 [[ ${MOCK_REFRESH_FAIL:-} == 1 ]] && exit 1
 exit 0
 EOF
@@ -575,10 +575,10 @@ ln -sf "$STATE/wall.png" "$STATE/current/background"
 echo "Other Theme" >"$STATE/current/theme.name"
 printf 'live' >"$HOME/frame.png"
 : >"$MOCK_LOG"
-check "--image exits 0 under another theme" "$SYNC" --image "$HOME/frame.png"
-check "--image renders the given image" grep -q "matugen image $HOME/frame.png" "$MOCK_LOG"
-check "--image under another theme skips the refresh" \
-  bash -c "! grep -q omarchy-theme-refresh '$MOCK_LOG'"
+check "--image under another theme refuses (exit 1)" \
+  bash -c "'$SYNC' --image '$HOME/frame.png'; [[ \$? -eq 1 ]]"
+check "--image under another theme renders nothing (user templates untouched)" \
+  bash -c "! grep -q matugen '$MOCK_LOG'"
 
 echo "test: --image survives the refresh-triggered path unit (no clobber)"
 echo "Matugen Auto" >"$STATE/current/theme.name"
@@ -591,14 +591,18 @@ check "--image with matugen-auto active refreshes omarchy" \
 # The real refresh re-triggers the path unit while it is still running, so
 # the guard must already be on disk when the refresh starts. The refresh mock
 # snapshots the fingerprint file into ~/.last-at-refresh at that moment.
-rm -f "$STATE/matugen-auto.last" "$HOME/.last-at-refresh"   # post-install state
+rm -f "$STATE/matugen-auto.last" "$STATE/matugen-auto.skip-once" \
+      "$HOME/.skip-at-refresh"   # post-install state
 check "fresh install state: --image exits 0" "$SYNC" --image "$HOME/frame.png"
-check "wallpaper fingerprint committed before the refresh fires" \
-  grep -q "$STATE/wall.png" "$HOME/.last-at-refresh"
+check "loopback suppression armed before the refresh fires" \
+  grep -q "$STATE/wall.png" "$HOME/.skip-at-refresh"
 : >"$MOCK_LOG"
 check "loopback trigger: exits 0" "$SYNC"
 check "loopback trigger: does not clobber the --image palette" \
   bash -c "! grep -q matugen '$MOCK_LOG'"
+: >"$MOCK_LOG"
+check "re-picking the wallpaper after --image restores its palette" \
+  bash -c "'$SYNC' && grep -q 'matugen image $STATE/wall.png' '$MOCK_LOG'"
 touch -d '2005-05-05' "$STATE/wall.png"
 : >"$MOCK_LOG"
 check "real wallpaper change still regenerates" \
@@ -788,6 +792,15 @@ check "second selective import extends the selection" \
 check "selective removal prunes one entry" \
   bash -c "'$WE' import --remove 111 && test ! -e '$UB/we-111.jpg' && test -f '$UB/we-222.jpg'"
 check "uninstalled id refuses" bash -c "! '$WE' import 999 >/dev/null 2>&1"
+
+echo "test: a failing id in a multi-id import keeps the successes recoverable"
+mkdir -p "$WE_WORKSHOP_DIR/777" "$WE_WORKSHOP_DIR/888"   # 888: dir but no preview
+printf 'jpg' >"$WE_WORKSHOP_DIR/777/preview.jpg"
+check "mixed import exits nonzero" bash -c "! '$WE' import 777 888 >/dev/null 2>&1"
+check "successful id still materialized" test -f "$UB/we-777.jpg"
+check "successful id manifested, not orphaned" grep -qx "we-777.jpg" "$UB/.omarchy-auto-theme-we"
+check "retrying the good id succeeds" bash -c "'$WE' import 777 >/dev/null 2>&1"
+rm -rf "$WE_WORKSHOP_DIR/777" "$WE_WORKSHOP_DIR/888"
 "$WE" import >/dev/null 2>&1   # back to a full collection for the tests below
 
 echo "test: sync detects we- backgrounds and drives the launcher unit"
@@ -904,6 +917,20 @@ check "stray capture never overwrites the user file" \
 check "user we- file: exec-current exits 0 without launching" \
   bash -c "'$WE' --exec-current && ! grep -q linux-wallpaperengine '$MOCK_LOG'"
 rm -rf "$UB/we-999.jpg" "$SHOTS_DIR/999.jpg" "$WE_WORKSHOP_DIR/999"
+
+echo "test: removing the active background advances to the next wallpaper"
+ln -sf "$UB/we-222.jpg" "$STATE/current/background"
+"$SYNC" >/dev/null 2>&1
+: >"$MOCK_LOG"
+check "removing a non-current entry leaves the wallpaper alone" \
+  bash -c "'$WE' import --remove 444 && ! grep -q omarchy-theme-bg-next '$MOCK_LOG'"
+: >"$MOCK_LOG"
+check "removing the on-screen still exits 0" "$WE" import --remove 222
+check "wallpaper advanced past the dangling symlink" \
+  grep -q "omarchy-theme-bg-next" "$MOCK_LOG"
+"$WE" import >/dev/null 2>&1   # restore the full collection
+ln -sf "$UB/we-111.jpg" "$STATE/current/background"
+"$SYNC" >/dev/null 2>&1
 
 echo "test: --exec-current builds the launch from the current background"
 ln -sf "$UB/we-111.jpg" "$STATE/current/background"

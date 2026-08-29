@@ -12,6 +12,8 @@ export PATH="$HOME/.local/bin:$OMARCHY_PATH/bin:/usr/local/bin:/usr/bin:$PATH"
 
 STATE_DIR="$HOME/.local/state/omarchy"
 LAST_FILE="$STATE_DIR/matugen-auto.last"
+# One-shot loopback suppression armed by an --image render (see below).
+SKIP_ONCE="$STATE_DIR/matugen-auto.skip-once"
 THEME_DIR="$HOME/.config/omarchy/themes/matugen-auto"
 CONFIG="$HOME/.config/matugen/omarchy-auto-theme.toml"
 # Steam's workshop content dir for Wallpaper Engine (app id 431960).
@@ -255,8 +257,14 @@ reconcile_rotation \
 theme_name=$(cat "$STATE_DIR/current/theme.name" 2>/dev/null || true)
 slug=$(echo "$theme_name" | tr '[:upper:] ' '[:lower:]-')
 if [[ -n $IMAGE ]]; then
-  # An explicit image is user intent: render regardless of the active theme
-  # and the fingerprint guard.
+  # An explicit image is user intent: bypass the fingerprint guard. The
+  # active-theme guard still applies, though - matugen also rewrites user
+  # template outputs (Starship, shell colors, ...) live, and those must not
+  # change under whatever other theme is on screen.
+  if [[ $slug != matugen-auto ]]; then
+    echo "omarchy-matugen-sync: active theme is '${theme_name:-none}'; run 'omarchy theme set matugen-auto' first" >&2
+    exit 1
+  fi
   bg=$IMAGE
 else
   # Switching to another theme also rewrites the background; a live
@@ -277,6 +285,15 @@ else
   # Fingerprint is path + size + nanosecond mtime, so an image edited or
   # replaced in place still counts as a change even within the same second.
   fingerprint="$bg $(stat -c '%s %.Y' "$bg" 2>/dev/null || true)"
+  # One-shot suppression from an --image render: its refresh rewrote
+  # current/ and re-triggered this script, and the static wallpaper's
+  # palette must not clobber the explicit image's. Always consumed here,
+  # so any LATER pick of this wallpaper renders normally.
+  if [[ -f $SKIP_ONCE ]]; then
+    skip=$(cat "$SKIP_ONCE" 2>/dev/null || true)
+    rm -f "$SKIP_ONCE"
+    [[ $fingerprint == "$skip" ]] && exit 0
+  fi
   [[ $fingerprint == "$(cat "$LAST_FILE" 2>/dev/null || true)" ]] && exit 0
 fi
 
@@ -291,21 +308,18 @@ commit_fingerprint() {
 }
 
 if [[ -n $IMAGE ]]; then
-  if [[ $slug != matugen-auto ]]; then
-    # colors.toml is rendered for the next activation; refreshing now would
-    # re-apply the OTHER theme (a full shell-IPC round for nothing).
-    echo "omarchy-matugen-sync: note: active theme is '${theme_name:-none}'; run 'omarchy theme set matugen-auto' to see the colors" >&2
-    exit 0
-  fi
   # The refresh below rewrites current/ mid-run, which re-triggers the path
-  # unit while this process is still inside omarchy-theme-refresh. Commit the
-  # static wallpaper's fingerprint BEFORE refreshing so that racing run
-  # no-ops instead of clobbering this palette with the static wallpaper's
-  # colors. Safe: the refresh runs with OMARCHY_THEME_SKIP_BACKGROUND=1 and
-  # never rewrites the background link.
+  # unit while this process is still inside omarchy-theme-refresh. Arm a
+  # one-shot suppression for the static wallpaper BEFORE refreshing so that
+  # racing run no-ops instead of clobbering this palette - and clear the
+  # committed fingerprint, so deliberately re-picking that wallpaper later
+  # restores its palette (and a failed refresh gets retried) instead of
+  # silently no-opping. Safe: the refresh runs with
+  # OMARCHY_THEME_SKIP_BACKGROUND=1 and never rewrites the background link.
   cur=$(readlink -f "$STATE_DIR/current/background" 2>/dev/null || true)
+  rm -f "$LAST_FILE"
   [[ -n $cur && -f $cur ]] \
-    && commit_fingerprint "$cur $(stat -c '%s %.Y' "$cur" 2>/dev/null || true)"
+    && printf '%s\n' "$cur $(stat -c '%s %.Y' "$cur" 2>/dev/null || true)" >"$SKIP_ONCE"
   omarchy-theme-refresh
   exit 0
 fi

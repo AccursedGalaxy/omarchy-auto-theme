@@ -5,11 +5,11 @@
 ### Added
 - **`omarchy-matugen-sync --image <path>`.** Renders the theme from an
   explicit image, bypassing Omarchy's wallpaper state and the fingerprint
-  guard. The escape hatch for wallpapers Omarchy does not manage. The static
-  wallpaper's fingerprint is recorded before the refresh fires, so the
-  refresh-triggered path unit run cannot clobber the palette. While another
-  theme is active, the render is written for the next activation and the
-  refresh is skipped.
+  guard. The escape hatch for wallpapers Omarchy does not manage. A one-shot
+  suppression keeps the refresh-triggered path unit run from clobbering the
+  palette, while re-picking the static wallpaper later still restores its
+  colors. Refuses while another theme is active (matugen would rewrite user
+  template outputs live under the wrong theme).
 - **`omarchy-auto-theme-we`.** Wallpaper Engine companion: resolves a
   workshop id, project folder, image, or video to a still frame (ffmpeg for
   animated sources) and themes the desktop from it. With a trailing
